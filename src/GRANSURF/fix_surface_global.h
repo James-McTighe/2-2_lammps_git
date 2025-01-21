@@ -46,7 +46,7 @@ class FixSurfaceGlobal : public FixSurface {
   ~FixSurfaceGlobal();
   int setmask();
   void post_constructor();
-  
+
   void init() override;
   void setup_pre_neighbor() override;
   void initial_integrate(int) override;
