@@ -3197,7 +3197,7 @@ void FixSurfaceGlobal::walk_flat_connections2d(int n, int i, int nsidej, std::ve
   processed_contacts->insert(j);
   flat_surfs->push_back(n);
 
-  int k, m, aflag, nsidek, pwhich, shared_j_contact, shared_k_contact, nconnect, convex_flag;
+  int k, m, aflag, nsidek, which, shared_j_contact, shared_k_contact, nconnect, convex_flag;
   double xcn[3], xcm[3], dr[3];
   double **x = atom->x;
 
@@ -3208,14 +3208,14 @@ void FixSurfaceGlobal::walk_flat_connections2d(int n, int i, int nsidej, std::ve
       k = connect2d[j].neigh_p1[nconnect];
       aflag = connect2d[j].aflag_p1[nconnect];
       nsidek = connect2d[j].nside_p1[nconnect];
-      pwhich = connect2d[j].pwhich_p1[nconnect];
+      which = connect2d[j].pwhich_p1[nconnect];
       if (contact_surfs[n].jflag == -1)
         shared_j_contact = 1;
     } else {
       k = connect2d[j].neigh_p2[nconnect - connect2d[j].np1];
       aflag = connect2d[j].aflag_p2[nconnect - connect2d[j].np1];
       nsidek = connect2d[j].nside_p2[nconnect - connect2d[j].np1];
-      pwhich = connect2d[j].pwhich_p2[nconnect - connect2d[j].np1];
+      which = connect2d[j].pwhich_p2[nconnect - connect2d[j].np1];
       if (contact_surfs[n].jflag == -2)
         shared_j_contact = 1;
     }
@@ -3230,8 +3230,8 @@ void FixSurfaceGlobal::walk_flat_connections2d(int n, int i, int nsidej, std::ve
 
     m = (*contacts_map)[k];
     shared_k_contact = 0; // whether closest PoC for k is at the connecting pt
-    if ((pwhich == 0 && contact_surfs[m].jflag == -1) ||
-        (pwhich == 1 && contact_surfs[m].jflag == -2))
+    if ((which == 0 && contact_surfs[m].jflag == -1) ||
+        (which == 1 && contact_surfs[m].jflag == -2))
       shared_k_contact = 1;
 
     // Different type flat surfs act independently
@@ -3294,7 +3294,7 @@ void FixSurfaceGlobal::walk_flat_connections3d(int n, int i, int nsidej, std::ve
   processed_contacts->insert(j);
   flat_surfs->push_back(n);
 
-  int k, m, aflag, nsidek, which, shared_j_contact, shared_k_contact, nconnect, nc, convex_flag;
+  int k, m, aflag, jflag, nsidek, which, shared_j_contact, shared_k_contact, nconnect, nc, convex_flag;
   double xcn[3], xcm[3], dr[3];
   double **x = atom->x;
 
@@ -3329,7 +3329,6 @@ void FixSurfaceGlobal::walk_flat_connections3d(int n, int i, int nsidej, std::ve
       if (contact_surfs[n].jflag == -3)
         shared_j_contact = 1;
     }
-        //   -1/-2/-3 for 3 edges, -4/-5/-6 for 3 corner pts
 
     // Skip if already processed
     if (processed_contacts->find(k) != processed_contacts->end())
@@ -3340,11 +3339,16 @@ void FixSurfaceGlobal::walk_flat_connections3d(int n, int i, int nsidej, std::ve
       continue;
 
     m = (*contacts_map)[k];
+
+    jflag = contact_surfs[m].jflag;
     shared_k_contact = 0; // whether closest PoC for k is at the connecting edge
-    if ((which == 0 && contact_surfs[m].jflag == -1) ||
-        (which == 1 && contact_surfs[m].jflag == -2) ||
-        (which == 2 && contact_surfs[m].jflag == -3))
-      shared_k_contact = 1;
+    if (which == 0 && (jflag == -1 || jflag == -4 || jflag == -5))
+      shared_k_contact = 1; // e1 = p1+p2
+    if (which == 1 && (jflag == -2 || jflag == -5 || jflag == -6))
+      shared_k_contact = 1; // e2 = p2+p3
+    if (which == 2 && (jflag == -3 || jflag == -4 || jflag == -6))
+      shared_k_contact = 1; // e3 = p1+p3
+
 
     // Different type flat surfs act independently
     if (aflag == FLAT && contact_surfs[n].type == contact_surfs[m].type) {
