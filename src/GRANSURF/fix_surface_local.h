@@ -40,7 +40,7 @@ class FixSurfaceLocal : public FixSurface {
   virtual ~FixSurfaceLocal();
   int setmask();
   void post_constructor();
-  
+
   void setup_pre_neighbor() override;
   void pre_neighbor() override;
 
@@ -69,7 +69,7 @@ class FixSurfaceLocal : public FixSurface {
   int ninput;
   int *input_modes,*input_stypes;
   char **input_sources;
-  
+
   int flag_complete;    // whether one-time connectivity info has been calculated
 
   class AtomVecLine *avec_line;
@@ -94,6 +94,8 @@ class FixSurfaceLocal : public FixSurface {
     int aflag_e1,aflag_e2,aflag_e3;     // pool indices of neigh_e123 chunks
     int neigh_c1,neigh_c2,neigh_c3;     // pool indices of neigh_c123 chunks
     int cwhich_c1,cwhich_c2,cwhich_c3;  // pool indices of neigh_c123 chunks
+    int nside_c1,nside_c2,nside_c3;     // pool indices of neigh_c123 chunks
+    int aflag_c1,aflag_c2,aflag_c3;     // pool indices of neigh_c123 chunks
   };
 
   Pool2d *pool2d;               // pool indices of connect2d vectors
@@ -144,7 +146,7 @@ class FixSurfaceLocal : public FixSurface {
   Tri *tris;                  // global list of tris
   int npoints,nlines,ntris;   // count of each
   int maxpoints;
-  
+
   Connect2d *connect2dall;    // global connectivity info
   Connect3d *connect3dall;
 

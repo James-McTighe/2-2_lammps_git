@@ -161,7 +161,7 @@ class FixSurfaceGlobal : public FixSurface {
 
   int **neigh_e1;             // indices of other tris connected to edge 1
   int **ewhich_e1;            // which edge (0/1/2) on other tri is edge 1
-  int **nside_e1;             // consistency of other line normal
+  int **nside_e1;             // consistency of other tri normal
                               //   SAME_SIDE or OPPOSITE_SIDE
   int **aflag_e1;             // is this tri + other tri a FLAT,CONCAVE,CONVEX surf
                               //   surf = on normal side of this tri
@@ -178,10 +178,18 @@ class FixSurfaceGlobal : public FixSurface {
 
   int **neigh_c1;             // indices of other tris connected to cpt 1
   int **cwhich_c1;            // which corner point (0/1/2) on other tri is cpt 1
+  int **nside_c1;             // consistency of other tri normal
+                              //   SAME_SIDE or OPPOSITE_SIDE, only meaningful for FLAT
+  int **aflag_c1;             // is this tri + other tri a FLAT or CONCAVE surf
+                              //   surf = on normal side of this tri
   int **neigh_c2;             // indices of other tris connected to cpt 21
   int **cwhich_c2;            // which corner point (0/1/2) on other tri is cpt 2
+  int **nside_c2;             // ditto for corner 2
+  int **aflag_c2;             // ditto for corner 2
   int **neigh_c3;             // indices of tris connected to cpt 3
   int **cwhich_c3;            // which corner point (0/1/2) on other tri is cpt 3
+  int **nside_c3;             // ditto for corner 3
+  int **aflag_c3;             // ditto for corner 3
 
   // per-surface 2d/3d connectivity
 

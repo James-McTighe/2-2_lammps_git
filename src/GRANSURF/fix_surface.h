@@ -77,20 +77,26 @@ class FixSurface : public Fix {
     int *cwhich_c1;       // which corner pt (0,1,2) on other tri shares corner pt 1
     int *cwhich_c2;       // ditto for corner pt 2
     int *cwhich_c3;       // ditto for corner pt 3
+    int *nside_c1;        // consistency of normals, only meaningful for FLAT
+    int *nside_c2;        // ditto for corner 2
+    int *nside_c3;        // ditto for corner 3
+    int *aflag_c1;        // are tris FLAT or CONCAVE (no CONVEX)
+    int *aflag_c2;        // ditto for corner 2
+    int *aflag_c3;        // ditto for corner 3
   };
 
-  
+
   FixSurface(class LAMMPS *, int, char **);
   ~FixSurface() override;
 
   virtual int setmask() = 0;
-  
+
   virtual void post_constructor() {}
 
  protected:
 
   // surfs read from molecule or STL files
-  
+
   struct Point {
     double x[3];
   };

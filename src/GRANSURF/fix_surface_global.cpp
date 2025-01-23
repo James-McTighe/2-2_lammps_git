@@ -2378,6 +2378,12 @@ void FixSurfaceGlobal::connectivity3d_complete()
   memory->create_ragged(cwhich_c1,ntris,c1_counts,"surface:cwhich_c1");
   memory->create_ragged(cwhich_c2,ntris,c2_counts,"surface:cwhich_c2");
   memory->create_ragged(cwhich_c3,ntris,c3_counts,"surface:cwhich_c3");
+  memory->create_ragged(nside_c1,ntris,c1_counts,"surface:nside_c1");
+  memory->create_ragged(nside_c2,ntris,c2_counts,"surface:nside_c2");
+  memory->create_ragged(nside_c3,ntris,c3_counts,"surface:nside_c3");
+  memory->create_ragged(aflag_c1,ntris,c1_counts,"surface:aflag_c1");
+  memory->create_ragged(aflag_c2,ntris,c2_counts,"surface:aflag_c2");
+  memory->create_ragged(aflag_c3,ntris,c3_counts,"surface:aflag_c3");
 
   memory->destroy(c1_counts);
   memory->destroy(c2_counts);
@@ -2386,17 +2392,41 @@ void FixSurfaceGlobal::connectivity3d_complete()
   // set connect3d vector ptrs to rows of corresponding ragged arrays
 
   for (int i = 0; i < ntris; i++) {
-    if (connect3d[i].nc1 == 0) connect3d[i].cwhich_c1 = nullptr;
-    else connect3d[i].cwhich_c1 = cwhich_c1[i];
-    if (connect3d[i].nc2 == 0) connect3d[i].cwhich_c2 = nullptr;
-    else connect3d[i].cwhich_c2 = cwhich_c2[i];
-    if (connect3d[i].nc3 == 0) connect3d[i].cwhich_c3 = nullptr;
-    else connect3d[i].cwhich_c3 = cwhich_c3[i];
+    if (connect3d[i].nc1 == 0) {
+      connect3d[i].cwhich_c1 = nullptr;
+      connect3d[i].nside_c1 = nullptr;
+      connect3d[i].aflag_c1 = nullptr;
+    } else {
+      connect3d[i].cwhich_c1 = cwhich_c1[i];
+      connect3d[i].nside_c1 = nside_c1[i];
+      connect3d[i].aflag_c1 = aflag_c1[i];
+    }
+
+    if (connect3d[i].nc2 == 0) {
+      connect3d[i].cwhich_c2 = nullptr;
+      connect3d[i].nside_c2 = nullptr;
+      connect3d[i].aflag_c2 = nullptr;
+    } else {
+      connect3d[i].cwhich_c2 = cwhich_c2[i];
+      connect3d[i].nside_c2 = nside_c2[i];
+      connect3d[i].aflag_c2 = aflag_c2[i];
+    }
+
+    if (connect3d[i].nc3 == 0) {
+      connect3d[i].cwhich_c3 = nullptr;
+      connect3d[i].nside_c3 = nullptr;
+      connect3d[i].aflag_c3 = nullptr;
+    } else {
+      connect3d[i].cwhich_c3 = cwhich_c3[i];
+      connect3d[i].nside_c3 = nside_c3[i];
+      connect3d[i].aflag_c3 = aflag_c3[i];
+    }
   }
 
-  // set connect3d cwhich for each end point of each line
+  // set connect3d cwhich/nside/aflag for each end point of each line
   // see fsg.h file for an explanation of each corner vector in Connect3d
-  // aflag is based on dot and cross product of 2 connected tri normals
+  // aflag is based on dot of 2 connected tri normals
+  //   only designates flat vs. non-flat (treated like concave)
 
   for (int i = 0; i < ntris; i++) {
     for (m = 0; m < connect3d[i].nc1; m++) {
@@ -2404,18 +2434,56 @@ void FixSurfaceGlobal::connectivity3d_complete()
       if (tris[i].p1 == tris[j].p1) connect3d[i].cwhich_c1[m] = 0;
       else if (tris[i].p1 == tris[j].p2) connect3d[i].cwhich_c1[m] = 1;
       else if (tris[i].p1 == tris[j].p3) connect3d[i].cwhich_c1[m] = 2;
+
+      inorm = tris[i].norm;
+      jnorm = tris[j].norm;
+      dotnorm = MathExtra::dot3(inorm,jnorm);
+      if (dotnorm < 0.0)
+        connect3d[i].nside_c1[m] = OPPOSITE_SIDE;
+      else
+        connect3d[i].nside_c1[m] = SAME_SIDE;
+      if (fabs(dotnorm) > 1.0-flatthresh)
+        connect3d[i].aflag_c1[m] = FLAT;
+      else
+        connect3d[i].aflag_c1[m] = CONCAVE;
     }
+
     for (m = 0; m < connect3d[i].nc2; m++) {
       j = connect3d[i].neigh_c2[m];
       if (tris[i].p2 == tris[j].p1) connect3d[i].cwhich_c2[m] = 0;
       else if (tris[i].p2 == tris[j].p2) connect3d[i].cwhich_c2[m] = 1;
       else if (tris[i].p2 == tris[j].p3) connect3d[i].cwhich_c2[m] = 2;
+
+      inorm = tris[i].norm;
+      jnorm = tris[j].norm;
+      dotnorm = MathExtra::dot3(inorm,jnorm);
+      if (dotnorm < 0.0)
+        connect3d[i].nside_c2[m] = OPPOSITE_SIDE;
+      else
+        connect3d[i].nside_c2[m] = SAME_SIDE;
+      if (fabs(dotnorm) > 1.0-flatthresh)
+        connect3d[i].aflag_c2[m] = FLAT;
+      else
+        connect3d[i].aflag_c2[m] = CONCAVE;
     }
+
     for (m = 0; m < connect3d[i].nc3; m++) {
       j = connect3d[i].neigh_c3[m];
       if (tris[i].p3 == tris[j].p1) connect3d[i].cwhich_c3[m] = 0;
       else if (tris[i].p3 == tris[j].p2) connect3d[i].cwhich_c3[m] = 1;
       else if (tris[i].p3 == tris[j].p3) connect3d[i].cwhich_c3[m] = 2;
+
+      inorm = tris[i].norm;
+      jnorm = tris[j].norm;
+      dotnorm = MathExtra::dot3(inorm,jnorm);
+      if (dotnorm < 0.0)
+        connect3d[i].nside_c3[m] = OPPOSITE_SIDE;
+      else
+        connect3d[i].nside_c3[m] = SAME_SIDE;
+      if (fabs(dotnorm) > 1.0-flatthresh)
+        connect3d[i].aflag_c3[m] = FLAT;
+      else
+        connect3d[i].aflag_c3[m] = CONCAVE;
     }
   }
 }
