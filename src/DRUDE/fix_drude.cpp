@@ -165,7 +165,7 @@ void FixDrude::build_drudeid() {
   for (int i=0; i<nlocal; i++) {
     if (drudetype[type[i]] == CORE_TYPE) {
       if (drudeid[i] == 0)
-        error->one(FLERR, Error::NOLASTLINE, "Core atom ID {} has no drude atom", atom->tag[i]);
+        error->one(FLERR, "Core atom ID {} has no drude atom", atom->tag[i]);
     }
   }
 }
