@@ -143,7 +143,7 @@ int overlap_sphere_tri(double *xsphere, double radius,
   dot = MathExtra::dot3(xproduct,norm);
   if (dot <= 0.0) {
     o23flag = 1;
-    if (dot == 0.0) e23flag = 2;
+    if (dot == 0.0) e23flag = 1;
     else inside = 0;
   }
 
@@ -153,7 +153,7 @@ int overlap_sphere_tri(double *xsphere, double radius,
   dot = MathExtra::dot3(xproduct,norm);
   if (dot <= 0.0) {
     o31flag = 1;
-    if (dot == 0.0) e31flag = 3;
+    if (dot == 0.0) e31flag = 1;
     else inside = 0;
   }
 

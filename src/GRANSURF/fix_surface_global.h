@@ -200,7 +200,7 @@ class FixSurfaceGlobal : public FixSurface {
 
   struct ContactSurf {
     int index, neigh_index, type, jflag, nside, use_surf_normal;
-    double r[3], overlap, dist_nonflat_connection;
+    double contact[3], r[3], overlap, dist_nonflat_connection;
   };
 
   ContactSurf *contact_surfs;
