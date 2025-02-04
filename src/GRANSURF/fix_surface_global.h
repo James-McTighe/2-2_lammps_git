@@ -196,7 +196,7 @@ class FixSurfaceGlobal : public FixSurface {
   Connect2d *connect2d;             // 2d connection info
   Connect3d *connect3d;             // 3d connection info
 
-  // arrays for precalculated metrics
+  // precalculated per-point metrics
 
   int *exposed_pt;       // if point is exposed and can exert forces in non-normal direction
 
@@ -228,8 +228,8 @@ class FixSurfaceGlobal : public FixSurface {
 
   void surface_attributes();
 
-  void walk_flat_connections2d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
-  void walk_flat_connections3d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
+  void walk_connections2d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
+  void walk_connections3d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
 
   void surface_connectivity_attributes();
 
