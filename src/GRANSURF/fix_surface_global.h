@@ -199,12 +199,13 @@ class FixSurfaceGlobal : public FixSurface {
   // precalculated per-point metrics
 
   int *exposed_pt;       // if point is exposed and can exert forces in non-normal direction
+  int **exposed_edge;    // ntri x 3 array for edges - redundant data
 
   // struct for storing contact data
 
   struct ContactSurf {
     int index, neigh_index, type, jflag, nside, use_surf_normal;
-    double contact[3], r[3], overlap, dist_nonflat;
+    double contact[3], norm[3], overlap, dist_nonflat;
   };
 
   ContactSurf *contact_surfs;
