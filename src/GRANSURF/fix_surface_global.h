@@ -204,8 +204,8 @@ class FixSurfaceGlobal : public FixSurface {
   // struct for storing contact data
 
   struct ContactSurf {
-    int index, neigh_index, type, flag, nside, norm_definition;
-    double contact[3], norm[3], dr[3], overlap, dist_nonflat;
+    int index, neigh_index, type, flag, nside, norm_def, exposed;
+    double contact[3], dr[3], surf_norm[3], force_norm[3], overlap, dist_nonflat;
   };
 
   ContactSurf *contact_surfs;
@@ -229,9 +229,9 @@ class FixSurfaceGlobal : public FixSurface {
 
   void surface_attributes();
 
-  void walk_connections2d(int, int, int &, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
-  void walk_connections3d(int, int, int &, double &, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
-  double weight_closest_corner(double *, double *, double *, double *);
+  void walk_connections2d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
+  void walk_connections3d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
+  int adjust_exposed_tri(int, int, int, int);
 
   void surface_connectivity_attributes();
 
