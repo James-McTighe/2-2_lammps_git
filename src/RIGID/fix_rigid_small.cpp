@@ -21,6 +21,8 @@
 #include "comm.h"
 #include "domain.h"
 #include "error.h"
+#include "fix.h"
+#include "fix_deform.h"
 #include "force.h"
 #include "group.h"
 #include "input.h"
@@ -561,6 +563,16 @@ void FixRigidSmall::init()
     if (ifix->box_change) boxflag = true;
   }
 
+  // check for fix deform with V_REMAP set
+
+  deform_vremap = 0;
+  const auto &fixes = modify->get_fix_list();
+  for (const auto &fix : fixes)
+    if (utils::strmatch(fix->style,"^deform")) {
+      if ((dynamic_cast<FixDeform *>(fix))->remapflag == Domain::V_REMAP)
+        deform_vremap = 1;
+    }
+
   // add gravity forces based on gravity vector from fix
 
   if (id_gravity) {
@@ -789,7 +801,8 @@ void FixRigidSmall::initial_integrate(int vflag)
      due to first-time definition of rigid body in setup_bodies_static()
      or due to box flip
    also adjust imagebody = rigid body image flags, due to xcm remap
-   then communicate bodies so other procs will know of changes to body xcm
+   also remap vcm if xcm crosses periodic shearing boundary
+   then communicate bodies so other procs will know of changes to body xcm/vcm
    then adjust xcmimage flags of all atoms in bodies via image_shift()
      for two effects
      (1) change in true image flags due to pbc() call during exchange
@@ -797,18 +810,17 @@ void FixRigidSmall::initial_integrate(int vflag)
    xcmimage flags are always -1,0,-1 so that body can be unwrapped
      around in-box xcm and stay close to simulation box
    if just inferred unwrapped from atom image flags,
-     then a body could end up very far away
-     when unwrapped by true image flags
-   then set_xv() will compute huge displacements every step to reset coords of
-     all the body atoms to be back inside the box, ditto for triclinic box flip
-     note: so just want to avoid that numeric problem?
+     then an unwrapped body could end up very far away from box
+   set_xv() would then compute huge displacements every step to
+     reset coords of all body atoms to be back inside the box,
+     ditto for triclinic box flip which could cause numeric problems
 ------------------------------------------------------------------------- */
 
 void FixRigidSmall::pre_neighbor()
 {
   for (int ibody = 0; ibody < nlocal_body; ibody++) {
     Body *b = &body[ibody];
-    domain->remap(b->xcm,b->image);
+    domain->remap(b->xcm,b->image,b->vcm);
   }
 
   nghost_body = 0;
@@ -968,9 +980,11 @@ void FixRigidSmall::apply_langevin_thermostat()
     gamma1 = -body[ibody].mass / t_period / ftm2v;
     gamma2 = sqrt(body[ibody].mass) * tsqrt *
       sqrt(24.0*boltz/t_period/dt/mvv2e) / ftm2v;
+    if (deform_vremap) remove_bias(ibody,vcm);
     langextra[ibody][0] = gamma1*vcm[0] + gamma2*(random->uniform()-0.5);
     langextra[ibody][1] = gamma1*vcm[1] + gamma2*(random->uniform()-0.5);
     langextra[ibody][2] = gamma1*vcm[2] + gamma2*(random->uniform()-0.5);
+    if (deform_vremap) restore_bias(ibody,vcm);
 
     gamma1 = -1.0 / t_period / ftm2v;
     gamma2 = tsqrt * sqrt(24.0*boltz/t_period/dt/mvv2e) / ftm2v;
@@ -992,6 +1006,37 @@ void FixRigidSmall::apply_langevin_thermostat()
 
     MathExtra::matvec(ex_space,ey_space,ez_space,tbody,&langextra[ibody][3]);
   }
+}
+
+/* ----------------------------------------------------------------------
+   remove velocity bias from VCM of Body ibody to leave thermal VCM
+------------------------------------------------------------------------- */
+
+void FixRigidSmall::remove_bias(int ibody, double *vcm)
+{
+  double lamda[3];
+  double *h_rate = domain->h_rate;
+  double *h_ratelo = domain->h_ratelo;
+
+  domain->x2lamda(body[ibody].xcm, lamda);
+  vbias[0] = h_rate[0] * lamda[0] + h_rate[5] * lamda[1] + h_rate[4] * lamda[2] + h_ratelo[0];
+  vbias[1] = h_rate[1] * lamda[1] + h_rate[3] * lamda[2] + h_ratelo[1];
+  vbias[2] = h_rate[2] * lamda[2] + h_ratelo[2];
+  vcm[0] -= vbias[0];
+  vcm[1] -= vbias[1];
+  vcm[2] -= vbias[2];
+}
+
+/* ----------------------------------------------------------------------
+   add back velocity bias to VCM of Body ibody removed by remove_bias()
+   assume remove_bias() was previously called
+------------------------------------------------------------------------- */
+
+void FixRigidSmall::restore_bias(int /*i*/, double *vcm)
+{
+  vcm[0] += vbias[0];
+  vcm[1] += vbias[1];
+  vcm[2] += vbias[2];
 }
 
 /* ---------------------------------------------------------------------- */
