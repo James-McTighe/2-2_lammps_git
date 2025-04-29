@@ -26,6 +26,7 @@
 //       how is this handled for local surfs
 // NOTE: could allow non-assignment of type pairs
 //       to enable some particles to pass thru some surfs
+// NOTE: should be prohibit a corner connection between two exposed edges on a tri?
 
 // Performance improvements
 // NOTE: optimal access to velocity of each surf, depends on motion
@@ -874,7 +875,7 @@ void FixSurfaceGlobal::post_force(int vflag)
   int itype, jtype, n_contact_surfs, exposed_flag;
   double xtmp, ytmp, ztmp, radi, delx, dely, delz, meff;
   int *ilist, *jlist, *numneigh, **firstneigh;
-  int *touch, **firsttouch, touch_flag;
+  int *touch, **firsttouch, touch_flag, external_flag;
   double rsq,radsum, *xpoint, turning_weight;
   double norm[3], dr[3], contact[3], ds[3], xc[3], vc[3], omegac[3];
   double *forces, *torquesi, *history, *allhistory, **firsthistory;
@@ -1048,8 +1049,8 @@ void FixSurfaceGlobal::post_force(int vflag)
         MathExtra::copy3(lines[j].norm, norm);
         dot = MathExtra::dot3(norm, dr);
         jtype = lines[j].type;
-        if ((jflag == -1 && exposed_pt[lines[j].p1] != 0) ||
-            (jflag == -2 && exposed_pt[lines[j].p2] != 0))
+        if ((jflag == -1 && exposed_pt[j][0] != 0) ||
+            (jflag == -2 && exposed_pt[j][1] != 0))
           exposed_flag = 1;
       } else {
         MathExtra::copy3(tris[j].norm, norm);
@@ -1057,13 +1058,13 @@ void FixSurfaceGlobal::post_force(int vflag)
         jtype = tris[j].type;
         if ((jflag == -1 && exposed_edge[j][0] != 0) ||
             (jflag == -2 && exposed_edge[j][1] != 0) ||
-            (jflag == -3 && exposed_edge[j][2] != 0))
+            (jflag == -3 && exposed_edge[j][2] != 0)) {
           exposed_flag = 1;
-
-        if ((jflag == -4 && exposed_pt[tris[j].p1] != 0) ||
-            (jflag == -5 && exposed_pt[tris[j].p2] != 0) ||
-            (jflag == -6 && exposed_pt[tris[j].p3] != 0))
+        } else if ((jflag == -4 && exposed_pt[j][0] != 0) ||
+            (jflag == -5 && exposed_pt[j][1] != 0) ||
+            (jflag == -6 && exposed_pt[j][2] != 0)) {
           exposed_flag = 2;
+        }
       }
       if (dot >= 0) nsidej = SAME_SIDE;
       else nsidej = OPPOSITE_SIDE;
@@ -1137,10 +1138,31 @@ void FixSurfaceGlobal::post_force(int vflag)
             turning_weight = MIN(turning_weight, contact_surfs[m].dist_nonflat / radsurf[k]);
         }
 
+        external_flag = 0;
+        double wext = 0;
+        if (contact_surfs[flat_surfs->front()].exposed) {
+          external_flag = 1;
+          for (it = 0; it < flat_surfs->size(); it++) {
+            m = (*flat_surfs)[it];
+            k = contact_surfs[m].index;
+            double dot = MathExtra::dot3(contact_surfs[m].dr, contact_surfs[m].  surf_norm);
+            double residual[3];
+            MathExtra::scaleadd3(-dot, contact_surfs[m].surf_norm, contact_surfs[m].dr, residual);
+            double l = MathExtra::len3(residual);
+            double r = 0.5*radsurf[k];
+            wext = MAX(wext, (r-l)/r);
+          }
+        }
+        wext = wext * wext;
+
         // Calculate overlap-weighted average normal vector
         MathExtra::zero3(dr);
         for (it = 0; it < flat_surfs->size(); it++) {
           m = (*flat_surfs)[it];
+
+          // if the closest contact is external (nodes between two lines will get reclassified as not exposed)
+          if (external_flag && !contact_surfs[m].exposed)
+            contact_surfs[m].overlap *= wext;
 
           k = contact_surfs[m].index;
           if (hidden_contacts->find(k) != hidden_contacts->end()) {
@@ -1150,6 +1172,7 @@ void FixSurfaceGlobal::post_force(int vflag)
 
           MathExtra::copy3(contact_surfs[m].force_norm, norm);
           overlap = contact_surfs[m].overlap;
+
           if (contact_surfs[m].dist_nonflat == BIG) {
             for (a = 0; a < 3; a++)
               dr[a] += norm[a] * overlap * turning_weight;
@@ -2674,37 +2697,40 @@ void FixSurfaceGlobal::surface_attributes()
 void FixSurfaceGlobal::surface_connectivity_attributes()
 {
   int i, a, n;
-  memory->create(exposed_pt, npoints, "surface/global:exposed_pt");
-  for (i = 0; i < npoints; i++) exposed_pt[i] = 0;
 
-  if (dimension == 3) {
+  if (dimension == 2) {
+    memory->create(exposed_pt, npoints, 2, "surface/global:exposed_pt");
+    for (i = 0; i < npoints; i++) {
+      exposed_pt[i][0] = 0;
+      exposed_pt[i][1] = 0;
+    }
+  } else {
+    memory->create(exposed_pt, npoints, 3, "surface/global:exposed_pt");
     memory->create(exposed_edge, nsurf, 3, "surface/global:exposed_edge");
-    for (i = 0; i < nsurf; i++)
-      for (a = 0; a < 3; a++)
+    for (i = 0; i < nsurf; i++) {
+      for (a = 0; a < 3; a++) {
+        exposed_pt[i][a] = 0;
         exposed_edge[i][a] = 0;
+      }
+    }
   }
 
-  // Classify whether a pt is exposed as part of a non-flat connection or on a border
-  // Redundant/inefficient to loop surfs instead of points, but only calculated once
+  // Classify whether a pt is exposed (no flat connections)
   if (dimension == 2) {
     for (i = 0; i < nsurf; i++) {
-      // (a) unconnected on border
-      if (connect2d[i].np1 == 0)
-        exposed_pt[lines[i].p1] = 1;
-      if (connect2d[i].np2 == 0)
-        exposed_pt[lines[i].p2] = 1;
-
-      // (b) has a non-flat connection
+      exposed_pt[i][0] = 1;
+      exposed_pt[i][1] = 1;
       for (n = 0; n < connect2d[i].np1; n++)
-        if (connect2d[i].aflag_p1[n] != FLAT)
-          exposed_pt[lines[i].p1] = 2;
+        if (connect2d[i].aflag_p1[n] == FLAT)
+          exposed_pt[i][0] = 0;
       for (n = 0; n < connect2d[i].np2; n++)
-        if (connect2d[i].aflag_p2[n] != FLAT)
-          exposed_pt[lines[i].p2] = 2;
+        if (connect2d[i].aflag_p2[n] == FLAT)
+          exposed_pt[i][1] = 0;
     }
   } else {
     for (i = 0; i < nsurf; i++) {
-      // exposed edge if:
+      // Will need to revise this to account for hidden non-flat
+      // exposed edge if (ordered by importance):
       //   (a) unconnected on border
       if (connect3d[i].ne1 == 0)
         exposed_edge[i][0] = 1;
@@ -2724,39 +2750,31 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
         if (connect3d[i].aflag_e3[n] != FLAT)
           exposed_edge[i][2] = 2;
 
-      // exposed corner if:
-      //   (a) unconnected on corner
-      if (connect3d[i].nc1 == 0)
-        exposed_pt[tris[i].p1] = 1;
-      if (connect3d[i].nc2 == 0)
-        exposed_pt[tris[i].p2] = 1;
-      if (connect3d[i].nc3 == 0)
-        exposed_pt[tris[i].p3] = 1;
+      // exposed corner if (ordered by importance):
+      //   (a) associated with an exposed edge
+      if (exposed_edge[i][0] == 1) {
+        exposed_pt[i][0] = 1;
+        exposed_pt[i][1] = 1;
+      }
+      if (exposed_edge[i][1] == 1) {
+        exposed_pt[i][1] = 1;
+        exposed_pt[i][2] = 1;
+      }
+      if (exposed_edge[i][2] == 1) {
+        exposed_pt[i][0] = 1;
+        exposed_pt[i][2] = 1;
+      }
 
       //   (b) has a non-flat connection
       for (n = 0; n < connect3d[i].nc1; n++)
         if (connect3d[i].aflag_c1[n] != FLAT)
-          exposed_pt[tris[i].p1] = 2;
+          exposed_pt[i][0] = 2;
       for (n = 0; n < connect3d[i].nc2; n++)
         if (connect3d[i].aflag_c2[n] != FLAT)
-          exposed_pt[tris[i].p2] = 2;
+          exposed_pt[i][1] = 2;
       for (n = 0; n < connect3d[i].nc3; n++)
         if (connect3d[i].aflag_c3[n] != FLAT)
-          exposed_pt[tris[i].p3] = 2;
-
-      //   (c) associated with an exposed edge
-      if (exposed_edge[i][0] == 1) {
-        exposed_pt[tris[i].p1] = 3;
-        exposed_pt[tris[i].p2] = 3;
-      }
-      if (exposed_edge[i][1] == 1) {
-        exposed_pt[tris[i].p2] = 3;
-        exposed_pt[tris[i].p3] = 3;
-      }
-      if (exposed_edge[i][2] == 1) {
-        exposed_pt[tris[i].p1] = 3;
-        exposed_pt[tris[i].p3] = 3;
-      }
+          exposed_pt[i][2] = 2;
     }
   }
 }
@@ -3419,7 +3437,7 @@ void FixSurfaceGlobal::walk_connections2d(int n, int nsidej, std::vector<int> *f
       // Concave or flat + different types: 2x forces, force along surface normal
       convex_flag = 0;
       if ((nsidej == SAME_SIDE && aflag == CONVEX) ||
-        (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
+          (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
         convex_flag = 1;
 
       if (convex_flag) {
@@ -3474,9 +3492,14 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
   int norm_set = 0;
   int concave_contact = 0;
   int jflag = contact_surfs[n].flag;
+
   int needs_correction = 0;
   if (contact_surfs[n].exposed && jflag < -3)
-    needs_correction = 1;
+    needs_correction = 2;
+
+  int external_contact = 0;
+  if (contact_surfs[flat_surfs->front()].exposed)
+    external_contact = 1;
 
   // Loop through edge-connected surfs
   ntotal = connect3d[j].ne1 + connect3d[j].ne2 + connect3d[j].ne3;
@@ -3532,14 +3555,20 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
 
         walk_connections3d(m, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
       }
-      if (needs_correction)
-        needs_correction = adjust_exposed_tri(j, k, n, m);
+      // If j (exposed corner) still needs a correction, check connected non-corner
+      //   contacts for corrections
+      //   First, check if normal vector points into a tri
+      //   Second, if contact is external, check if normal vector obeys 2D rules along edge
+      if (needs_correction == 2)
+        needs_correction = adjust_exposed_corner_int(j, k, n, m);
+      if (external_contact && needs_correction && contact_surfs[m].exposed)
+        needs_correction = MIN(needs_correction, adjust_exposed_corner_ext(j, k, n, m));
     } else {
       // Convex: hide other surf, adjust forces near joint, force along contact direction
       // Concave or flat + different types: 2x forces, force along surface normal
       convex_flag = 0;
       if ((nsidej == SAME_SIDE && aflag == CONVEX) ||
-        (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
+          (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
         convex_flag = 1;
 
       if (convex_flag) {
@@ -3602,8 +3631,10 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
 
         walk_connections3d(m, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
       }
-      if (needs_correction)
-        needs_correction = adjust_exposed_tri(j, k, n, m);
+      if (needs_correction == 2)
+        needs_correction = adjust_exposed_corner_int(j, k, n, m);
+      if (external_contact && needs_correction && contact_surfs[m].exposed)
+        needs_correction = MIN(needs_correction, adjust_exposed_corner_ext(j, k, n, m));
     }
   }
 
@@ -3619,20 +3650,22 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
       // otherwise default to surface normal
       MathExtra::copy3(contact_surfs[n].surf_norm, contact_surfs[n].force_norm);
       contact_surfs[n].norm_def = 0;
+
+      // If norm is perpendicular to dr, then which side the surface is on can be arbitrary, so zero overlap
+      double dot = MathExtra::dot3(contact_surfs[n].surf_norm, contact_surfs[n].dr);
+      if (fabs(dot) < EPSILON)
+        contact_surfs[n].overlap = 0;
     }
   }
 }
 
 /* ----------------------------------------------------------------------
-   For exposed corner contacts, check if connected flat tri contains vector
+   For exposed corner contacts (j), check if connected tri (k) contains vector
      if so, adjust force normal as necessary
 ------------------------------------------------------------------------- */
 
-int FixSurfaceGlobal::adjust_exposed_tri(int j, int k, int n, int m)
+int FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
 {
-  double drnorm[3];
-  MathExtra::normalize3(contact_surfs[n].dr, drnorm);
-
   // Find which two of k's edges meet at j's corner
   int pt;
   if (contact_surfs[n].flag == -4) pt = tris[j].p1;
@@ -3654,13 +3687,14 @@ int FixSurfaceGlobal::adjust_exposed_tri(int j, int k, int n, int m)
   // Check if dr lies within these edges
   //   if 1 x dr aligns with 1 x 2 and if 2 x dr aligns with 2 x 1
   //   i.e. the direction of rotation is the same
-  double c1r[3], c12[3], c2r[3];
+  double drnorm[3], c1r[3], c12[3], c2r[3];
+  MathExtra::normalize3(contact_surfs[n].dr, drnorm);
   MathExtra::cross3(line1, drnorm, c1r);
   MathExtra::cross3(line2, drnorm, c2r);
   MathExtra::cross3(line1, line2, c12);
 
   if (MathExtra::dot3(c1r, c12) < 0 || MathExtra::dot3(c2r, c12) > 0)
-    return 1;
+    return 2;
 
   // Project to 2D plane composed of j's norm and vector between contacts
   //  break dr into components in- and out-of-plane
@@ -3670,7 +3704,7 @@ int FixSurfaceGlobal::adjust_exposed_tri(int j, int k, int n, int m)
   MathExtra::sub3(contact_surfs[n].contact, contact_surfs[m].contact, dcontact);
   double dist = MathExtra::len3(dcontact);
   if (dist < EPSILON)
-    return 1;
+    return 2;
   MathExtra::scale3(1.0 / dist, dcontact);
 
   double jnorm[3], knorm[3];
@@ -3682,18 +3716,17 @@ int FixSurfaceGlobal::adjust_exposed_tri(int j, int k, int n, int m)
   MathExtra::norm3(n_plane);
   double dotdrn = MathExtra::dot3(drnorm, n_plane);
 
-  double l_proj, dr_proj[3], dr_residual[3];
+  double dr_proj[3];
   MathExtra::scaleadd3(-dotdrn, n_plane, drnorm, dr_proj);
-  MathExtra::sub3(drnorm, dr_proj, dr_residual);
-  l_proj = MathExtra::len3(dr_proj);
-  MathExtra::norm3(dr_proj);
 
   // Check if surfs appear concave or convex in this plane
 
+  double dr_remove[3], dot;
   double dotjdc = MathExtra::dot3(jnorm, dcontact);
   if (dotjdc <= 0.0 || fabs(dotjdc) < EPSILON) {
     // appears concave (or jnorm = knorm)
-    MathExtra::copy3(jnorm, dr_proj);
+    dot = MathExtra::dot3(dr_proj, jnorm);
+    MathExtra::scaleadd3(-dot, jnorm, dr_proj, dr_remove);
   } else {
     // appears convex
     // Project k norm into plane, minor adjustment b/c flat
@@ -3707,20 +3740,172 @@ int FixSurfaceGlobal::adjust_exposed_tri(int j, int k, int n, int m)
 
     // Limit dr_proj to lie between jnorm and knorm
     if (acos(dotjk) < acos(dotjdr)) {
-      MathExtra::copy3(knorm, dr_proj);
+      dot = MathExtra::dot3(dr_proj, knorm);
+      MathExtra::scaleadd3(-dot, knorm, dr_proj, dr_remove);
     } else if (acos(dotjk) < acos(dotkdr)) {
-      MathExtra::copy3(jnorm, dr_proj);
+      dot = MathExtra::dot3(dr_proj, jnorm);
+      MathExtra::scaleadd3(-dot, jnorm, dr_proj, dr_remove);
     }
   }
 
+  // get surface normal of j surface in 2d plane
+  double jnorm2[3];
+  double dot2 = MathExtra::dot3(n_plane, contact_surfs[n].surf_norm);
+  MathExtra::scaleadd3(-dot2, n_plane, contact_surfs[n].surf_norm, jnorm2);
 
-  // Add out of plane component back if k is exposed
-  //   (e.g. to add back in forces in plane of surf on an edge)
-  if (contact_surfs[m].exposed) {
-    MathExtra::scaleadd3(l_proj, dr_proj, dr_residual, contact_surfs[n].dr);
-  } else {
-    MathExtra::copy3(dr_proj, contact_surfs[n].dr);
+  // add back in any component that lies along j's normal
+  //   to preserve continuity with edge calculation
+  dot2 = MathExtra::dot3(dr_remove, jnorm2);
+  MathExtra::scaleadd3(-dot2, jnorm2, dr_remove, dr_remove);
+
+  MathExtra::sub3(drnorm, dr_remove, contact_surfs[n].dr);
+  return 1;
+}
+
+/* ----------------------------------------------------------------------
+   For exposed corner contacts (j) with an external contact, check if connected
+     exposed tri (k) contains vector and adjust force normal as necessary
+------------------------------------------------------------------------- */
+
+int FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
+{
+  // Get j's exposed edge vector
+  //   note: this will be arbitrary if j's corner is connected to two exposed edges
+
+  int pt;
+  int ptj = -1;
+  if (contact_surfs[n].flag == -4) {
+    pt = tris[j].p1;
+    if (exposed_edge[j][0]) ptj = tris[j].p2;
+    if (exposed_edge[j][2]) ptj = tris[j].p3;
+  } else if (contact_surfs[n].flag == -5) {
+    pt = tris[j].p2;
+    if (exposed_edge[j][0]) ptj = tris[j].p1;
+    if (exposed_edge[j][1]) ptj = tris[j].p3;
+  } else if (contact_surfs[n].flag == -6) {
+    pt = tris[j].p3;
+    if (exposed_edge[j][1]) ptj = tris[j].p2;
+    if (exposed_edge[j][2]) ptj = tris[j].p1;
   }
 
+  if (ptj == -1)
+    error->one(FLERR, "Missing exposed edge");
+
+  double jline[3];
+  MathExtra::sub3(points[ptj].x, points[pt].x, jline);
+  MathExtra::norm3(jline);
+
+  // Check if k's edge-in-contact connects to j's corner
+  //   if so, calculate its edge vector
+  //   if k is a corner, then find if one of the edges is exposed
+  //   if not, skip
+
+  int ptk = -1;
+  if (contact_surfs[m].flag == -1) {
+    if (pt == tris[k].p1) ptk = tris[k].p2;
+    if (pt == tris[k].p2) ptk = tris[k].p1;
+  } else if (contact_surfs[m].flag == -2) {
+    if (pt == tris[k].p2) ptk = tris[k].p3;
+    if (pt == tris[k].p3) ptk = tris[k].p2;
+  } else if (contact_surfs[m].flag == -3) {
+    if (pt == tris[k].p1) ptk = tris[k].p3;
+    if (pt == tris[k].p3) ptk = tris[k].p1;
+  } else if (contact_surfs[m].flag == -4) {
+    if (exposed_edge[k][0]) ptk = tris[k].p2;
+    if (exposed_edge[k][2]) ptk = tris[k].p3;
+  } else if (contact_surfs[m].flag == -5) {
+    if (exposed_edge[k][0]) ptk = tris[k].p1;
+    if (exposed_edge[k][1]) ptk = tris[k].p3;
+  } else if (contact_surfs[m].flag == -6) {
+    if (exposed_edge[k][1]) ptk = tris[k].p2;
+    if (exposed_edge[k][2]) ptk = tris[k].p1;
+  }
+
+  if (ptk == -1)
+    return 2;
+
+  double kline[3];
+  MathExtra::sub3(points[ptk].x, points[pt].x, kline);
+  MathExtra::norm3(kline);
+
+  // Otherwise, determine if concave or convex
+  //   first, get edge normal vector (perpendicular to surf norm)
+  double jnorm[3], knorm[3];
+  MathExtra::cross3(tris[j].norm, jline, jnorm);
+  MathExtra::norm3(jnorm);
+  MathExtra::cross3(tris[k].norm, kline, knorm);
+  MathExtra::norm3(knorm);
+
+  // Correct sign (pointing away from 3rd corner)
+  int pt3;
+  double dot, line3[3];
+
+  if (pt != tris[j].p1 && ptj != tris[j].p1) pt3 = tris[j].p1;
+  if (pt != tris[j].p2 && ptj != tris[j].p2) pt3 = tris[j].p2;
+  if (pt != tris[j].p3 && ptj != tris[j].p3) pt3 = tris[j].p3;
+  MathExtra::sub3(points[pt3].x, points[pt].x, line3);
+  dot = MathExtra::dot3(line3, jnorm);
+  if (dot > 0) MathExtra::negate3(jnorm);
+
+  if (pt != tris[k].p1 && ptk != tris[k].p1) pt3 = tris[k].p1;
+  if (pt != tris[k].p2 && ptk != tris[k].p2) pt3 = tris[k].p2;
+  if (pt != tris[k].p3 && ptk != tris[k].p3) pt3 = tris[k].p3;
+  MathExtra::sub3(points[pt3].x, points[pt].x, line3);
+  dot = MathExtra::dot3(line3, knorm);
+  if (dot > 0) MathExtra::negate3(knorm);
+
+  // Determine if edges are concave or convex and correct component of
+  //   dr that lines within plane made up of two edge vectors
+
+  double n_plane[3], drnorm[3], dr_proj[3];
+  MathExtra::normalize3(contact_surfs[n].dr, drnorm);
+
+  if (fabs(MathExtra::dot3(jline, kline)) < (1.0 - EPSILON)) {
+    MathExtra::cross3(jline, kline, n_plane);
+  } else {
+    MathExtra::cross3(jline, jnorm, n_plane);
+  }
+  MathExtra::norm3(n_plane);
+  dot = MathExtra::dot3(drnorm, n_plane);
+  MathExtra::scaleadd3(-dot, n_plane, drnorm, dr_proj);
+  MathExtra::sub3(points[ptj].x, points[ptk].x, line3);
+  dot = MathExtra::dot3(jnorm, line3);
+
+  double dr_remove[3];
+  if (dot < 0.0 || fabs(dot) < EPSILON) {
+    // appears concave (or jnorm = knorm)
+    dot = MathExtra::dot3(dr_proj, jnorm);
+    MathExtra::scaleadd3(-dot, jnorm, dr_proj, dr_remove);
+  } else {
+    // appears convex
+    // limit dr_proj to lie between jnorm and knorm
+    // skip if both corners
+    if (contact_surfs[m].flag < -3) return 2;
+
+    double dotjk = MathExtra::dot3(jnorm, knorm);
+    double dotjdr = MathExtra::dot3(jnorm, dr_proj);
+    double dotkdr = MathExtra::dot3(knorm, dr_proj);
+
+    // Limit dr_proj to lie between jnorm and knorm
+    if (acos(dotjk) < acos(dotjdr)) {
+      dot = MathExtra::dot3(dr_proj, knorm);
+      MathExtra::scaleadd3(-dot, knorm, dr_proj, dr_remove);
+    } else if (acos(dotjk) < acos(dotkdr)) {
+      dot = MathExtra::dot3(dr_proj, jnorm);
+      MathExtra::scaleadd3(-dot, jnorm, dr_proj, dr_remove);
+    }
+  }
+
+  // get surface normal of j surface in 2d plane
+  double jnorm2[3];
+  double dot2 = MathExtra::dot3(n_plane, contact_surfs[n].surf_norm);
+  MathExtra::scaleadd3(-dot2, n_plane, contact_surfs[n].surf_norm, jnorm2);
+
+  // add back in any component that lies along j's normal
+  //   to preserve continuity with edge calculation
+  dot2 = MathExtra::dot3(dr_remove, jnorm2);
+  MathExtra::scaleadd3(-dot2, jnorm2, dr_remove, dr_remove);
+
+  MathExtra::sub3(drnorm, dr_remove, contact_surfs[n].dr);
   return 0;
 }

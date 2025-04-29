@@ -198,8 +198,8 @@ class FixSurfaceGlobal : public FixSurface {
 
   // precalculated per-point metrics
 
-  int *exposed_pt;       // if point is exposed and can exert forces in non-normal direction
-  int **exposed_edge;    // ntri x 3 array for edges - redundant data
+  int **exposed_pt;      // if point is exposed, ntri x 3 array
+  int **exposed_edge;    // if edge is exposed, ntri x 3 array
 
   // struct for storing contact data
 
@@ -231,7 +231,8 @@ class FixSurfaceGlobal : public FixSurface {
 
   void walk_connections2d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
   void walk_connections3d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
-  int adjust_exposed_tri(int, int, int, int);
+  int adjust_exposed_corner_int(int, int, int, int);
+  int adjust_exposed_corner_ext(int, int, int, int);
 
   void surface_connectivity_attributes();
 
