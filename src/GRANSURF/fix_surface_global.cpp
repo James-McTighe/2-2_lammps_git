@@ -875,13 +875,14 @@ void FixSurfaceGlobal::post_force(int vflag)
   int itype, jtype, n_contact_surfs, exposed_flag;
   double xtmp, ytmp, ztmp, radi, delx, dely, delz, meff;
   int *ilist, *jlist, *numneigh, **firstneigh;
-  int *touch, **firsttouch, touch_flag, external_flag;
-  double rsq,radsum, *xpoint, turning_weight;
+  int *touch, **firsttouch, touch_flag;
+  double rsq, radsum, turning_weight;
   double norm[3], dr[3], contact[3], ds[3], xc[3], vc[3], omegac[3];
   double *forces, *torquesi, *history, *allhistory, **firsthistory;
+  double distance_from_surf, smooth_ext;
 
   double dot, overlap, max_overlap, tmp[3];
-  int it, jjtmp, aflag, pwhich, contact_at_joint, shared_k_contact, convex_flag, nsidej, skip;
+  int it, jjtmp, nsidej;
   std::vector<int> *flat_surfs = new std::vector<int>();
   std::unordered_set<int> *processed_contacts = new std::unordered_set<int>();
   std::unordered_set<int> *hidden_contacts = new std::unordered_set<int>();
@@ -968,6 +969,7 @@ void FixSurfaceGlobal::post_force(int vflag)
     }
 
     n_contact_surfs = 0;
+    distance_from_surf = BIG;
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
 
@@ -1084,6 +1086,13 @@ void FixSurfaceGlobal::post_force(int vflag)
       MathExtra::copy3(dr, contact_surfs[n_contact_surfs].dr);
       MathExtra::copy3(contact, contact_surfs[n_contact_surfs].contact);
 
+      // Closest distance from sphere to surface
+      double dot = MathExtra::dot3(dr, norm);
+      double residual[3];
+      MathExtra::scaleadd3(-dot, norm, dr, residual);
+      double l = MathExtra::len3(residual);
+      distance_from_surf = MIN(distance_from_surf, l);
+
       // To ensure interior contacts always win in a tie
       //   this is needed for two sets of flat surfaces meeting at a convex orner
       //   since they need to calculate the distance to the corner to mooth normal vectors
@@ -1092,6 +1101,10 @@ void FixSurfaceGlobal::post_force(int vflag)
 
       n_contact_surfs += 1;
     }
+
+    smooth_ext = distance_from_surf / radi;
+    smooth_ext *= smooth_ext;
+    smooth_ext *= smooth_ext;
 
     // reduce set of contacts
 
@@ -1118,14 +1131,15 @@ void FixSurfaceGlobal::post_force(int vflag)
                            flat_surfs, processed_contacts,
                            hidden_contacts, contacts_map);
       } else {
-        walk_connections3d(n, contact_surfs[n].nside,
+        walk_connections3d(n, contact_surfs[n].nside, smooth_ext,
                            flat_surfs, processed_contacts,
                            hidden_contacts, concave_contacts, contacts_map);
+        process_hidden_tris(smooth_ext, flat_surfs, hidden_contacts);
+        process_concave_tris(smooth_ext, flat_surfs, concave_contacts);
       }
 
       // Calculate geometry of contact
 
-      skip = 0;
       if (flat_surfs->size() > 1) {
         max_overlap = contact_surfs[n].overlap;
 
@@ -1140,37 +1154,11 @@ void FixSurfaceGlobal::post_force(int vflag)
             turning_weight = MIN(turning_weight, contact_surfs[m].dist_nonflat / radsurf[k]);
         }
 
-        external_flag = 0;
-        double wext = 0;
-        if (contact_surfs[flat_surfs->front()].exposed) {
-          external_flag = 1;
-          for (it = 0; it < flat_surfs->size(); it++) {
-            m = (*flat_surfs)[it];
-            k = contact_surfs[m].index;
-            double dot = MathExtra::dot3(contact_surfs[m].dr, contact_surfs[m].surf_norm);
-            double residual[3];
-            MathExtra::scaleadd3(-dot, contact_surfs[m].surf_norm, contact_surfs[m].dr, residual);
-            double l = MathExtra::len3(residual);
-            double r = 0.5 * radsurf[k];
-            wext = MAX(wext, (r - l) / r);
-          }
-        }
-        wext = wext * wext;
-
         // Calculate overlap-weighted average normal vector
         MathExtra::zero3(dr);
         for (it = 0; it < flat_surfs->size(); it++) {
           m = (*flat_surfs)[it];
-
-          // if the closest contact is external (nodes between two lines will get reclassified as not exposed)
-          if (external_flag && !contact_surfs[m].exposed)
-            contact_surfs[m].overlap *= wext;
-
           k = contact_surfs[m].index;
-          if (hidden_contacts->find(k) != hidden_contacts->end()) {
-            skip = 1;
-            break;
-          }
 
           MathExtra::copy3(contact_surfs[m].force_norm, norm);
           overlap = contact_surfs[m].overlap;
@@ -1187,15 +1175,12 @@ void FixSurfaceGlobal::post_force(int vflag)
         MathExtra::norm3(dr);
         MathExtra::scale3(radi - max_overlap, dr);
       } else {
-        if (hidden_contacts->find(j) != hidden_contacts->end())
-          skip = 1;
-
-        overlap = contact_surfs[n].overlap;
-        MathExtra::scale3(radi - overlap, contact_surfs[n].force_norm, dr);
+        max_overlap = contact_surfs[n].overlap;
+        MathExtra::scale3(radi - max_overlap, contact_surfs[n].force_norm, dr);
       }
 
-      // Go to next contact if this one is obscured by a closer surf
-      if (skip) continue;
+      if (max_overlap == 0)
+        continue;
 
       for (a = 0; a < 3; a++)
         xc[a] = x[i][a] - dr[a];
@@ -3478,7 +3463,7 @@ void FixSurfaceGlobal::walk_connections2d(int n, int nsidej, std::vector<int> *f
 
 /* ---------------------------------------------------------------------- */
 
-void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *flat_surfs, std::unordered_set<int> *processed_contacts, std::unordered_set<int> *hidden_contacts, std::unordered_set<int> *concave_contacts, std::map<int, int> *contacts_map)
+void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, double smooth_ext, std::vector<int> *flat_surfs, std::unordered_set<int> *processed_contacts, std::unordered_set<int> *hidden_contacts, std::unordered_set<int> *concave_contacts, std::map<int, int> *contacts_map)
 {
   int j = contact_surfs[n].index;
 
@@ -3488,11 +3473,9 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
   if (contact_surfs[n].nside == OPPOSITE_SIDE)
     MathExtra::negate3(contact_surfs[n].surf_norm);
 
-  int k, m, aflag, nsidek, which, nconnect, nc, ntotal, convex_flag, contact_at_joint;
+  int k, m, aflag, nsidek, which, nconnect, nc, ntotal, convex_flag, contact_at_joint, tmp;
   double r, dot, *xjoint;
 
-  int norm_set = 0;
-  int concave_contact = 0;
   int jflag = contact_surfs[n].flag;
 
   int needs_correction = 0;
@@ -3555,7 +3538,7 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
         }
         contact_surfs[m].nside = nsidek;
 
-        walk_connections3d(m, nsidek, flat_surfs, processed_contacts, hidden_contacts, concave_contacts, contacts_map);
+        walk_connections3d(m, nsidek, smooth_ext, flat_surfs, processed_contacts, hidden_contacts, concave_contacts, contacts_map);
       }
       // If j (exposed corner) still needs a correction, check connected non-corner
       //   contacts for corrections
@@ -3563,8 +3546,10 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
       //   Second, if contact is external, check if normal vector obeys 2D rules along edge
       if (needs_correction == 2)
         needs_correction = adjust_exposed_corner_int(j, k, n, m);
-      if (external_contact && needs_correction && contact_surfs[m].exposed)
-        needs_correction = MIN(needs_correction, adjust_exposed_corner_ext(j, k, n, m));
+      if (external_contact && needs_correction && contact_surfs[m].exposed) {
+        tmp = adjust_exposed_corner_ext(j, k, n, m);
+        needs_correction = MIN(needs_correction, tmp);
+      }
     } else {
       // Convex: hide other surf, adjust forces near joint, force along contact direction
       // Concave or flat + different types: 2x forces, force along surface normal
@@ -3588,12 +3573,8 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
         r = sqrt(MathExtra::distsq3(contact_surfs[n].contact, xjoint));
         contact_surfs[n].dist_nonflat = MIN(contact_surfs[n].dist_nonflat, r);
       } else if (contact_at_joint) {
-        // contacting at concave joint, use normal
-        contact_surfs[n].norm_def = 1;
-        concave_contacts->insert(k); // store for corner-connections
-
-        // reprocess any flat corner-connections if necessary
-        reprocess_concave_corners(k, processed_contacts, contacts_map);
+        // contacting at concave joint, will prefer normal
+        concave_contacts->insert(k);
       }
     }
   }
@@ -3634,32 +3615,16 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
         }
         contact_surfs[m].nside = nsidek;
 
-        walk_connections3d(m, nsidek, flat_surfs, processed_contacts, hidden_contacts, concave_contacts, contacts_map);
+        walk_connections3d(m, nsidek, smooth_ext, flat_surfs, processed_contacts, hidden_contacts, concave_contacts, contacts_map);
       }
+
       if (needs_correction == 2)
         needs_correction = adjust_exposed_corner_int(j, k, n, m);
-      if (external_contact && needs_correction && contact_surfs[m].exposed)
-        needs_correction = MIN(needs_correction, adjust_exposed_corner_ext(j, k, n, m));
-    } else {
-      // Unknown non-flat
-
-      // If this has been identified as a concave contact before by another
-      //   flat tri with an well defined edge contact, treat as if concave
-      // Can't guarantee all concave contacts have been found, but will
-      //   be reprocessed (above) if found later
-      if (concave_contacts->find(k) != concave_contacts->end())
-        contact_surfs[n].norm_def = 1;
-
-      // Otherwise, ignore. For convex connections, contribution weights -> 0
+      if (external_contact && needs_correction && contact_surfs[m].exposed) {
+        tmp = adjust_exposed_corner_ext(j, k, n, m);
+        needs_correction = MIN(needs_correction, tmp);
+      }
     }
-  }
-
-  // Has a concave neighbor
-  if (contact_surfs[n].norm_def == 1) {
-    if (!contact_surfs[n].exposed)
-      MathExtra::copy3(contact_surfs[n].surf_norm, contact_surfs[n].force_norm);
-    else
-      MathExtra::normalize3(contact_surfs[n].dr, contact_surfs[n].force_norm);
   }
 
   // If norm hasn't been defined
@@ -3676,11 +3641,15 @@ void FixSurfaceGlobal::walk_connections3d(int n, int nsidej, std::vector<int> *f
       contact_surfs[n].norm_def = 0;
 
       // If norm is perpendicular to dr, then which side the surface is on can be arbitrary, so zero overlap
-      double dot = MathExtra::dot3(contact_surfs[n].surf_norm, contact_surfs[n].dr);
+      dot = MathExtra::dot3(contact_surfs[n].surf_norm, contact_surfs[n].dr);
       if (fabs(dot) < EPSILON)
         contact_surfs[n].overlap = 0;
     }
   }
+
+  // If contact is on an exposed surface, smooth internal flat fields
+  if (external_contact && !contact_surfs[n].exposed)
+    contact_surfs[n].overlap *= smooth_ext;
 }
 
 /* ----------------------------------------------------------------------
@@ -3780,9 +3749,15 @@ int FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
   // add back in any component that lies along j's normal
   //   to preserve continuity with edge calculation
   dot2 = MathExtra::dot3(dr_remove, jnorm2);
-  MathExtra::scaleadd3(-dot2, jnorm2, dr_remove, dr_remove);
+  MathExtra::scaleadd3(-fabs(dot2), jnorm2, dr_remove, dr_remove);
 
   MathExtra::sub3(drnorm, dr_remove, contact_surfs[n].dr);
+
+  // negate if sign flipped
+  dot2 = MathExtra::dot3(contact_surfs[n].dr, contact_surfs[n].surf_norm);
+  if (dot2 < 0.0)
+    MathExtra::negate3(contact_surfs[n].dr);
+
   return 1;
 }
 
@@ -3905,7 +3880,6 @@ int FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
     // limit dr_proj to lie between jnorm and knorm
     // skip if both corners
     if (contact_surfs[m].flag < -3) return 2;
-
     double dotjk = MathExtra::dot3(jnorm, knorm);
     double dotjdr = MathExtra::dot3(jnorm, dr_proj);
     double dotkdr = MathExtra::dot3(knorm, dr_proj);
@@ -3928,44 +3902,104 @@ int FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
   // add back in any component that lies along j's normal
   //   to preserve continuity with edge calculation
   dot2 = MathExtra::dot3(dr_remove, jnorm2);
-  MathExtra::scaleadd3(-dot2, jnorm2, dr_remove, dr_remove);
+  MathExtra::scaleadd3(-fabs(dot2), jnorm2, dr_remove, dr_remove);
 
   MathExtra::sub3(drnorm, dr_remove, contact_surfs[n].dr);
+
   return 0;
 }
 
-
 /* ----------------------------------------------------------------------
-   If a concave tri is found, check previously processed flat tris
-     to confirm none of them are corner-connected to the tri
-   If so, overwrite old fnorm and def
+   If any flat tris are hidden, smooth out/remove all contributions
 ------------------------------------------------------------------------- */
 
-void FixSurfaceGlobal::reprocess_concave_corners(int j, std::unordered_set<int> *processed_contacts, std::map<int, int> *contacts_map)
+void FixSurfaceGlobal::process_hidden_tris(double smooth_ext, std::vector<int> *flat_surfs, std::unordered_set<int> *hidden_contacts)
 {
-  int k, m, nconnect, nc, ntotal;
-  ntotal = connect3d[j].nc1 + connect3d[j].nc2 + connect3d[j].nc3;
-  for (nconnect = 0; nconnect < ntotal; nconnect++) {
-    if (nconnect < connect3d[j].nc1) {
-      nc = nconnect;
-      k = connect3d[j].neigh_c1[nc];
-    } else if (nconnect < connect3d[j].nc1 + connect3d[j].nc2) {
-      nc = nconnect - connect3d[j].nc1;
-      k = connect3d[j].neigh_c2[nc];
-    } else {
-      nc = nconnect - connect3d[j].nc1 - connect3d[j].nc2;
-      k = connect3d[j].neigh_c3[nc];
+  int n, j, external_contact;
+
+  int hidden = 0;
+  for (auto it = 0; it < flat_surfs->size(); it++) {
+    n = (*flat_surfs)[it];
+    j = contact_surfs[n].index;
+    if (hidden_contacts->find(j) != hidden_contacts->end())
+      hidden = 1;
+  }
+
+  if (hidden) {
+    external_contact = 0;
+    if (contact_surfs[flat_surfs->front()].exposed)
+      external_contact = 1;
+    for (auto it = 0; it < flat_surfs->size(); it++) {
+      n = (*flat_surfs)[it];
+      if (external_contact)
+        contact_surfs[n].overlap *= smooth_ext;
+      else
+        contact_surfs[n].overlap = 0;
+      contact_surfs[n].norm_def = 6;
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------
+   If a concave tri is found, check all flat tris to find connections
+    internal, use surface normal, external, weight with contact direction
+------------------------------------------------------------------------- */
+
+void FixSurfaceGlobal::process_concave_tris(double smooth_ext, std::vector<int> *flat_surfs, std::unordered_set<int> *concave_contacts)
+{
+  int j, k, n, m, nconnect, nc, ntotal, concave;
+
+  for (auto it = 0; it < flat_surfs->size(); it++) {
+    n = (*flat_surfs)[it];
+    j = contact_surfs[n].index;
+    concave = 0;
+
+    ntotal = connect3d[j].ne1 + connect3d[j].ne2 + connect3d[j].ne3;
+    for (nconnect = 0; nconnect < ntotal; nconnect++) {
+
+      if (concave) break;
+
+      if (nconnect < connect3d[j].ne1) {
+        nc = nconnect;
+        k = connect3d[j].neigh_e1[nc];
+      } else if (nconnect < connect3d[j].ne1 + connect3d[j].ne2) {
+        nc = nconnect - connect3d[j].ne1;
+        k = connect3d[j].neigh_e2[nc];
+      } else {
+        nc = nconnect - connect3d[j].ne1 - connect3d[j].ne2;
+        k = connect3d[j].neigh_e3[nc];
+      }
+
+      if (concave_contacts->find(k) != concave_contacts->end())
+        concave = 1;
     }
 
-    // Skip if not in contact
-    if (contacts_map->find(k) == contacts_map->end())
-      continue;
+    ntotal = connect3d[j].nc1 + connect3d[j].nc2 + connect3d[j].nc3;
+    for (nconnect = 0; nconnect < ntotal; nconnect++) {
 
-    m = (*contacts_map)[k];
+      if (concave) break;
 
-    if (processed_contacts->find(k) != processed_contacts->end()) {
-      // contacting at concave joint, use normal
-      contact_surfs[m].norm_def = 1;
+      if (nconnect < connect3d[j].nc1) {
+        nc = nconnect;
+        k = connect3d[j].neigh_c1[nc];
+      } else if (nconnect < connect3d[j].nc1 + connect3d[j].nc2) {
+        nc = nconnect - connect3d[j].nc1;
+        k = connect3d[j].neigh_c2[nc];
+      } else {
+        nc = nconnect - connect3d[j].nc1 - connect3d[j].nc2;
+        k = connect3d[j].neigh_c3[nc];
+      }
+
+      if (concave_contacts->find(k) != concave_contacts->end())
+        concave = 1;
+    }
+
+    if (concave) {
+      // Note: dr contains all adjustments
+      MathExtra::norm3(contact_surfs[n].dr);
+      MathExtra::scaleadd3(smooth_ext, contact_surfs[n].dr, 1.0 - smooth_ext,   contact_surfs[n].surf_norm, contact_surfs[n].force_norm);
+      MathExtra::norm3(contact_surfs[n].force_norm);
+      contact_surfs[n].norm_def = 1;
     }
   }
 }
