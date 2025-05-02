@@ -24,7 +24,6 @@ FixStyle(surface/global,FixSurfaceGlobal)
 #include "fix_surface.h"
 #include <map>
 #include <unordered_set>
-#include <tuple>
 #include <vector>
 
 namespace LAMMPS_NS {
@@ -205,7 +204,7 @@ class FixSurfaceGlobal : public FixSurface {
 
   struct ContactSurf {
     int index, neigh_index, type, flag, nside, norm_def, exposed;
-    double contact[3], dr[3], surf_norm[3], force_norm[3], overlap, dist_nonflat;
+    double contact[3], dr[3], surf_norm[3], force_norm[3], overlap, dist;
   };
 
   ContactSurf *contact_surfs;
@@ -233,7 +232,7 @@ class FixSurfaceGlobal : public FixSurface {
   void walk_connections3d(int, int, double, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
   int adjust_exposed_corner_int(int, int, int, int);
   int adjust_exposed_corner_ext(int, int, int, int);
-  void process_hidden_tris(double, std::vector<int> *, std::unordered_set<int> *);
+  void process_convex_surfs(double, std::vector<int> *, std::unordered_set<int>*);
   void process_concave_tris(double, std::vector<int> *, std::unordered_set<int> *);
 
   void surface_connectivity_attributes();
