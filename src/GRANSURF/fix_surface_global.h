@@ -232,7 +232,7 @@ class FixSurfaceGlobal : public FixSurface {
   void prewalk_connections3d(int, int, std::unordered_set<int> *, std::map<int, int> *);
   void walk_connections2d(int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
   void walk_connections3d(int, double, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
-  void adjust_exposed_corner_int(int, int, int, int);
+  void adjust_exposed_corner_int(int, int, int, int, int);
   void adjust_exposed_corner_ext(int, int, int, int);
   void process_convex_surfs(double, std::vector<int> *, std::unordered_set<int>*);
   void process_concave_tris(double, std::vector<int> *, std::unordered_set<int> *);
