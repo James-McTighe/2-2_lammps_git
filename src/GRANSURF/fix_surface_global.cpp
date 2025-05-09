@@ -2692,14 +2692,15 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
   int i, a, n;
 
   if (dimension == 2) {
-    memory->create(exposed_pt, npoints, 2, "surface/global:exposed_pt");
-    for (i = 0; i < npoints; i++) {
-      exposed_pt[i][0] = 0;
-      exposed_pt[i][1] = 0;
+    memory->create(exposed_pt, nsurf, 2, "surface/global:exposed_pt");
+    for (i = 0; i < nsurf; i++) {
+      exposed_pt[i][0] = INTERNAL;
+      exposed_pt[i][1] = INTERNAL;
     }
   } else {
-    memory->create(exposed_pt, npoints, 3, "surface/global:exposed_pt");
+    memory->create(exposed_pt, nsurf, 3, "surface/global:exposed_pt");
     memory->create(exposed_edge, nsurf, 3, "surface/global:exposed_edge");
+
     for (i = 0; i < nsurf; i++) {
       for (a = 0; a < 3; a++) {
         exposed_pt[i][a] = INTERNAL;
