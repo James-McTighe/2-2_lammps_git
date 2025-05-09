@@ -3731,6 +3731,7 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m, int
     MathExtra::copy3(drnorm, contact_surfs[n].cor_int);
     return;
   }
+
   double dr_deviation[3], dr_proj[3];
   MathExtra::scaleadd3(-dot, jnorm, drnorm, dr_deviation);
   dot = MathExtra::dot3(dr_deviation, knorm);
@@ -3788,8 +3789,7 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m, int
     // If so, does dr point towards this direction?
     //   note: line points towards corner, so want anitaligned
     dot = MathExtra::dot3(kline_exposed, drnorm);
-    if (dot > EPSILON)
-      return;
+    if (dot > EPSILON) return;
   } else {
     // If internal, find which of k's edges meet at j's corner and check that dr lies in that sector
 
@@ -3827,6 +3827,7 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m, int
     // Project dr to jnorm x knorm plane and force it to lie between the two
     double n_plane[3], dr_remove[3];
     MathExtra::cross3(jnorm, knorm, n_plane);
+    MathExtra::norm3(n_plane);
 
     // If jnorm and knorm aligned, just assign jnorm
     if (MathExtra::lensq3(n_plane) < EPSILON) {
@@ -3836,13 +3837,13 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m, int
 
     dot = MathExtra::dot3(n_plane, drnorm);
     MathExtra::scaleadd3(-dot, n_plane, drnorm, dr_proj);
+    MathExtra::norm3(dr_proj);
 
     double dotjk = MathExtra::dot3(jnorm, knorm);
     double dotjdr = MathExtra::dot3(jnorm, dr_proj);
     double dotkdr = MathExtra::dot3(knorm, dr_proj);
 
     MathExtra::zero3(dr_remove);
-
     // Only correct if dr_proj to lies outside of jnorm/knorm sector
     if (dotjk > dotjdr || dotjk > dotkdr) {
       // Correct to whichever is closer (could be outside of both)
