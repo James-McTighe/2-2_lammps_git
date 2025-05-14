@@ -45,7 +45,7 @@ void FixSurface::extract_from_molecule(char *molID,
                                        int &ntris, Tri *&tris)
 {
   int dimension = domain->dimension;
-  
+
   int imol = atom->find_molecule(molID);
   if (imol == -1)
     error->all(FLERR,"Molecule template ID for fix surface does not exist");
@@ -275,7 +275,7 @@ void FixSurface::connectivity2d_global(int npoints, int nlines, Line *lines,
 {
   connect2d = (Connect2d *)
     memory->smalloc(nlines*sizeof(Connect2d),"surface:connect2d");
-  
+
   // setup line end point connectivity lists
   // counts = # of lines containing each end point (including self)
   // plines = ragged 2d array with indices of lines which contain each point
@@ -316,7 +316,7 @@ void FixSurface::connectivity2d_global(int npoints, int nlines, Line *lines,
 
   memory->create_ragged(neigh_p1,nlines,p1_counts,"surface:neigh_p1");
   memory->create_ragged(neigh_p2,nlines,p2_counts,"surface:neigh_p2");
-  
+
   // set connect2d vector ptrs to rows of corresponding ragged arrays
 
   for (int i = 0; i < nlines; i++) {
@@ -475,7 +475,7 @@ int FixSurface::connectivity3d_global(int npoints, int ntris, Tri *tris,
   memory->create_ragged(neigh_e1,ntris,e1_counts,"surface:neigh_e1");
   memory->create_ragged(neigh_e2,ntris,e2_counts,"surface:neigh_e2");
   memory->create_ragged(neigh_e3,ntris,e3_counts,"surface:neigh_e3");
-  
+
   // set connect3d edge vector ptrs to rows of corresponding edge ragged arrays
 
   for (int i = 0; i < ntris; i++) {
@@ -491,7 +491,7 @@ int FixSurface::connectivity3d_global(int npoints, int ntris, Tri *tris,
     if (connect3d[i].ne3 == 0) connect3d[i].neigh_e3 = nullptr;
     else connect3d[i].neigh_e3 = neigh_e3[i];
   }
-  
+
   // initialize connect3d edge neigh vectors for each edge of each tri
   // do NOT include self
 
@@ -597,7 +597,7 @@ int FixSurface::connectivity3d_global(int npoints, int ntris, Tri *tris,
     if (connect3d[i].nc3) connect3d[i].neigh_c3 = neigh_c3[i];
     else connect3d[i].neigh_c3 = nullptr;
   }
-  
+
   // initialize connect3d corner neigh vectors for each corner of each tri
   // do NOT include self or tris which connect to an edge
   // only include tris which only connect at the corner point

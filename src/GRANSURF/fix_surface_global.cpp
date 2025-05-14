@@ -228,14 +228,11 @@ FixSurfaceGlobal::FixSurfaceGlobal(LAMMPS *lmp, int narg, char **arg) :
 
       model->init();
 
-      // JOEL NOTE: do size_history and use_history apply to each model or all models?
-      //    ANSWER: all models, logic updated below
-
       if (model->beyond_contact) size_history = MAX(size_history + 1, model->size_history);
       else size_history = MAX(size_history, model->size_history);
       if (model->size_history != 0) use_history = 1;
-      if (model->beyond_contact) //next_index = 1;
-      error->all(FLERR, "Granular models that extend beyond contact (e.g. JKR) not currenty supported");
+      if (model->beyond_contact)
+        error->all(FLERR, "Granular models that extend beyond contact (e.g. JKR) not currenty supported");
 
     } else break;
   }
@@ -547,12 +544,6 @@ void FixSurfaceGlobal::init()
       error->all(FLERR, "Heat conduction in fix surface/global requires atom style with heatflow property");
   }
 
-  // define history indices
-  // JOEL NOTE: WHat are "beyond" contact models ?
-  //            Why is this check not made in constructor ?
-  //    ANSWER: "beyond" is for contact models that have an attractive component
-  //            that extends beyond the contact distance
-  //            It doesn't have to be performed here, moved to constructor
   class GranularModel* model;
   int next_index = 0;
   for (int n = 0; n < nmodel; n++) {
@@ -565,6 +556,7 @@ void FixSurfaceGlobal::init()
 
   // one-time setup and allocation of neighbor list
   // wait until now, so neighbor settings have been made
+  // normally done in Neighbor->init_pair(), but this list is not registered by the Neighbor class
 
   if (firsttime) {
     firsttime = 0;
@@ -745,15 +737,15 @@ void FixSurfaceGlobal::pre_neighbor()
   double xtmp,ytmp,ztmp,delx,dely,delz;
   double radi,rsq,radsum,cutsq;
   int *neighptr,*touchptr;
-  double *shearptr;
+  double *valueptr;
 
   int *npartner;
   tagint **partner;
-  double **shearpartner;
-  int **firsttouch;
-  double **firstshear;
-  MyPage<int> *ipage_touch;
-  MyPage<double> *dpage_shear;
+  double **valuepartner;
+  int **firstflag;
+  double **firstvalue;
+  MyPage<int> *ipage_atom;
+  MyPage<double> *dpage_atom;
 
   double **x = atom->x;
   double *radius = atom->radius;
@@ -771,14 +763,14 @@ void FixSurfaceGlobal::pre_neighbor()
 
   if (use_history) {
     fix_history->nlocal_neigh = nlocal;
-    //npartner = fix_history->npartner;
-    //partner = fix_history->partner;
-    //shearpartner = fix_history->shearpartner;
-    firsttouch = fix_history->firstflag;
-    firstshear = fix_history->firstvalue;
-    //ipage_touch = listhistory->ipage;
-    //dpage_shear = listhistory->dpage;
-    //dnum = listhistory->dnum;
+    npartner = fix_history->npartner;         // # of touching partners of each atom
+    partner = fix_history->partner;           // global atom IDs for the partners
+    valuepartner = fix_history->valuepartner; // values for the partners
+    firstflag = fix_history->firstflag;       // ptr to each atom's neighbor flag
+    firstvalue = fix_history->firstvalue;     // ptr to each atom's values
+    ipage_atom = listhistory->ipage_atom;     // pages of partner atom IDs
+    dpage_atom = listhistory->dpage_atom;     // pages of partner values
+    dnum = listhistory->get_dnum();
     dnumbytes = dnum * sizeof(double);
   }
 
@@ -796,8 +788,8 @@ void FixSurfaceGlobal::pre_neighbor()
   int inum = 0;
   ipage->reset();
   if (use_history) {
-    ipage_touch->reset();
-    dpage_shear->reset();
+    ipage_atom->reset();
+    dpage_atom->reset();
   }
 
   for (i = 0; i < nlocal; i++) {
@@ -805,8 +797,8 @@ void FixSurfaceGlobal::pre_neighbor()
     neighptr = ipage->vget();
     if (use_history) {
       nn = 0;
-      touchptr = ipage_touch->vget();
-      shearptr = dpage_shear->vget();
+      touchptr = ipage_atom->vget();
+      valueptr = dpage_atom->vget();
     }
 
     xtmp = x[i][0];
@@ -815,33 +807,37 @@ void FixSurfaceGlobal::pre_neighbor()
     radi = radius[i];
 
     // for now, loop over all surfs
+    //   in future, could optimize (e.g. by binning)
 
     for (j = 0; j < nsurf; j++) {
       delx = xtmp - xsurf[j][0];
       dely = ytmp - xsurf[j][1];
       delz = ztmp - xsurf[j][2];
-      rsq = delx*delx + dely*dely + delz*delz;
+      rsq = delx * delx + dely * dely + delz * delz;
       radsum = radi + radsurf[j] + skin;
-      cutsq = radsum*radsum;
+      cutsq = radsum * radsum;
       if (rsq <= cutsq) {
+        // No history bit appended, therefore in fix_neigh_history.cpp
+        //   post force it won't grab a nonexistant atom tag of surface index
+        // However, pre_exchange still will...
         neighptr[n] = j;
 
         if (use_history) {
-          if (rsq < radsum*radsum) {
+          if (rsq < radsum * radsum) {
             for (m = 0; m < npartner[i]; m++)
               if (partner[i][m] == j) break;
             if (m < npartner[i]) {
               touchptr[n] = 1;
-              memcpy(&shearptr[nn],&shearpartner[i][dnum*m],dnumbytes);
+              memcpy(&valueptr[nn], &valuepartner[i][dnum * m], dnumbytes);
               nn += dnum;
             } else {
               touchptr[n] = 0;
-              memcpy(&shearptr[nn],zeroes,dnumbytes);
+              memcpy(&valueptr[nn], zeroes, dnumbytes);
               nn += dnum;
             }
           } else {
             touchptr[n] = 0;
-            memcpy(&shearptr[nn],zeroes,dnumbytes);
+            memcpy(&valueptr[nn], zeroes, dnumbytes);
             nn += dnum;
           }
         }
@@ -858,12 +854,13 @@ void FixSurfaceGlobal::pre_neighbor()
       error->one(FLERR,"Fix surface/global neighbor list overflow, "
                  "boost neigh_modify one");
 
-    if (use_history) {
-      firsttouch[i] = touchptr;
-      firstshear[i] = shearptr;
-      ipage_touch->vgot(n);
-      dpage_shear->vgot(nn);
-    }
+    // JTC: I think this is outdated
+    //if (use_history) {
+    //  firstflag[i] = touchptr;
+    //  firstvalue[i] = valueptr;
+    //  ipage_atom->vgot(n);
+    //  dpage_atom->vgot(nn);
+    //}
   }
 
   list->inum = inum;
@@ -880,7 +877,7 @@ void FixSurfaceGlobal::post_force(int vflag)
   int itype, jtype, n_contact_surfs, exposed_flag;
   double xtmp, ytmp, ztmp, radi, delx, dely, delz, meff;
   int *ilist, *jlist, *numneigh, **firstneigh;
-  int *touch, **firsttouch, touch_flag, zero_overlap;
+  int *touch, **firstflag, touch_flag, zero_overlap;
   double rsq, radsum, max_overlap, tmp_max, dot, distance_from_surf, smooth_ext;
   double norm[3], dr[3], contact[3], ds[3], xc[3], vc[3], omegac[3], residual[3];
   double *forces, *torquesi, *history, *allhistory, **firsthistory;
@@ -947,7 +944,7 @@ void FixSurfaceGlobal::post_force(int vflag)
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
   if (use_history) {
-    firsttouch = fix_history->firstflag;
+    firstflag = fix_history->firstflag;
     firsthistory = fix_history->firstvalue;
   }
 
@@ -968,7 +965,7 @@ void FixSurfaceGlobal::post_force(int vflag)
     jlist = firstneigh[i];
     jnum = numneigh[i];
     if (use_history) {
-      touch = firsttouch[i];
+      touch = firstflag[i];
       allhistory = firsthistory[i];
     }
 
