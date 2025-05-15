@@ -2764,6 +2764,20 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
           exposed_pt[i][2] = NONFLAT;
 
       //   (b) associated with an exposed edge
+      if (exposed_edge[i][0] == NONFLAT) {
+        exposed_pt[i][0] = NONFLAT;
+        exposed_pt[i][1] = NONFLAT;
+      }
+      if (exposed_edge[i][1] == NONFLAT) {
+        exposed_pt[i][1] = NONFLAT;
+        exposed_pt[i][2] = NONFLAT;
+      }
+      if (exposed_edge[i][2] == NONFLAT) {
+        exposed_pt[i][0] = NONFLAT;
+        exposed_pt[i][2] = NONFLAT;
+      }
+
+      //   (c) associated with an exposed edge
       if (exposed_edge[i][0] == EXTERNAL) {
         exposed_pt[i][0] = EXTERNAL;
         exposed_pt[i][1] = EXTERNAL;
@@ -3502,7 +3516,7 @@ void FixSurfaceGlobal::walk_connections2d(int n, std::vector<int> *flat_surfs, s
   flat_surfs->push_back(n);
 
   int k, m, aflag, which, nconnect, convex_flag, contact_at_joint;
-  double r;
+  double r, dot, linek[3];
   int jflag = contact_surfs[n].flag;
 
   for (nconnect = 0; nconnect < (connect2d[j].np1 + connect2d[j].np2); nconnect++) {
@@ -3532,6 +3546,19 @@ void FixSurfaceGlobal::walk_connections2d(int n, std::vector<int> *flat_surfs, s
       // flat, same-type: walk
       if (processed_contacts->find(k) == processed_contacts->end())
         walk_connections2d(m, flat_surfs, processed_contacts, convex_contacts, contacts_map);
+
+      // Adjust dr if j is an exposed corner so it doesn't point into neighboring flat line
+      if (contact_surfs[n].exposed) {
+        // Get k's line vector pointing away from connection
+        MathExtra::sub3(points[lines[k].p1].x, points[lines[k].p2].x, linek);
+        if (lines[k].p1 == lines[j].p1 || lines[k].p1 == lines[j].p2)
+          MathExtra::negate3(linek);
+        MathExtra::norm3(linek);
+        dot = MathExtra::dot3(linek, contact_surfs[n].dr);
+        if (dot > 0)
+          MathExtra::scaleadd3(-dot, linek, contact_surfs[n].dr, contact_surfs[n].dr);
+      }
+
     } else {
       convex_flag = 0;
       if ((contact_surfs[n].nside == SAME_SIDE && aflag == CONVEX) ||
