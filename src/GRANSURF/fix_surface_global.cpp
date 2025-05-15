@@ -2713,14 +2713,20 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
   // Classify whether a pt is exposed (no flat connections)
   if (dimension == 2) {
     for (i = 0; i < nsurf; i++) {
-      exposed_pt[i][0] = 1;
-      exposed_pt[i][1] = 1;
+      // exposed point if (ordered by increasing importance):
+      //   (a) has a non-flat connection
       for (n = 0; n < connect2d[i].np1; n++)
-        if (connect2d[i].aflag_p1[n] == FLAT)
-          exposed_pt[i][0] = 0;
+        if (connect2d[i].aflag_p1[n] != FLAT)
+          exposed_pt[i][0] = NONFLAT;
       for (n = 0; n < connect2d[i].np2; n++)
-        if (connect2d[i].aflag_p2[n] == FLAT)
-          exposed_pt[i][1] = 0;
+        if (connect2d[i].aflag_p2[n] != FLAT)
+          exposed_pt[i][1] = NONFLAT;
+
+      //   (b) unconnected on border
+      if (connect2d[i].np1 == 0)
+        exposed_pt[i][0] = EXTERNAL;
+      if (connect2d[i].np2 == 0)
+        exposed_pt[i][1] = EXTERNAL;
     }
   } else {
     for (i = 0; i < nsurf; i++) {
