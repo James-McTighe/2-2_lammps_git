@@ -2692,35 +2692,24 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
 {
   int i, a, n;
 
+  // Classify whether a pt is exposed (no flat connections)
   if (dimension == 2) {
     memory->create(exposed_pt, nsurf, 2, "surface/global:exposed_pt");
     for (i = 0; i < nsurf; i++) {
-      exposed_pt[i][0] = INTERNAL;
-      exposed_pt[i][1] = INTERNAL;
+      exposed_pt[i][0] = NONFLAT;
+      exposed_pt[i][1] = NONFLAT;
     }
-  } else {
-    memory->create(exposed_pt, nsurf, 3, "surface/global:exposed_pt");
-    memory->create(exposed_edge, nsurf, 3, "surface/global:exposed_edge");
 
-    for (i = 0; i < nsurf; i++) {
-      for (a = 0; a < 3; a++) {
-        exposed_pt[i][a] = INTERNAL;
-        exposed_edge[i][a] = INTERNAL;
-      }
-    }
-  }
-
-  // Classify whether a pt is exposed (no flat connections)
-  if (dimension == 2) {
     for (i = 0; i < nsurf; i++) {
       // exposed point if (ordered by increasing importance):
-      //   (a) has a non-flat connection
+      //   (a) has no flat connections (starts as NONFLAT)
       for (n = 0; n < connect2d[i].np1; n++)
-        if (connect2d[i].aflag_p1[n] != FLAT)
-          exposed_pt[i][0] = NONFLAT;
+        if (connect2d[i].aflag_p1[n] == FLAT)
+          exposed_pt[i][0] = INTERNAL;
+
       for (n = 0; n < connect2d[i].np2; n++)
-        if (connect2d[i].aflag_p2[n] != FLAT)
-          exposed_pt[i][1] = NONFLAT;
+        if (connect2d[i].aflag_p2[n] == FLAT)
+          exposed_pt[i][1] = INTERNAL;
 
       //   (b) unconnected on border
       if (connect2d[i].np1 == 0)
@@ -2729,18 +2718,28 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
         exposed_pt[i][1] = EXTERNAL;
     }
   } else {
+    memory->create(exposed_pt, nsurf, 3, "surface/global:exposed_pt");
+    memory->create(exposed_edge, nsurf, 3, "surface/global:exposed_edge");
+
+    for (i = 0; i < nsurf; i++) {
+      for (a = 0; a < 3; a++) {
+        exposed_edge[i][a] = NONFLAT;
+        exposed_pt[i][a] = INTERNAL;
+      }
+    }
+
     for (i = 0; i < nsurf; i++) {
       // exposed edge if (ordered by increasing importance):
-      //   (a) has a non-flat connection
+      //   (a) has no flat connections (starts as NONFLAT)
       for (n = 0; n < connect3d[i].ne1; n++)
-        if (connect3d[i].aflag_e1[n] != FLAT)
-          exposed_edge[i][0] = NONFLAT;
+        if (connect3d[i].aflag_e1[n] == FLAT)
+          exposed_edge[i][0] = INTERNAL;
       for (n = 0; n < connect3d[i].ne2; n++)
-        if (connect3d[i].aflag_e2[n] != FLAT)
-          exposed_edge[i][1] = NONFLAT;
+        if (connect3d[i].aflag_e2[n] == FLAT)
+          exposed_edge[i][1] = INTERNAL;
       for (n = 0; n < connect3d[i].ne3; n++)
-        if (connect3d[i].aflag_e3[n] != FLAT)
-          exposed_edge[i][2] = NONFLAT;
+        if (connect3d[i].aflag_e3[n] == FLAT)
+          exposed_edge[i][2] = INTERNAL;
 
       //   (b) unconnected on border
       if (connect3d[i].ne1 == 0)
@@ -2750,20 +2749,9 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
       if (connect3d[i].ne3 == 0)
         exposed_edge[i][2] = EXTERNAL;
 
-
-      // exposed corner if (ordered by increasing importance):
-      //   (a) has a non-flat connection
-      for (n = 0; n < connect3d[i].nc1; n++)
-        if (connect3d[i].aflag_c1[n] != FLAT)
-          exposed_pt[i][0] = NONFLAT;
-      for (n = 0; n < connect3d[i].nc2; n++)
-        if (connect3d[i].aflag_c2[n] != FLAT)
-          exposed_pt[i][1] = NONFLAT;
-      for (n = 0; n < connect3d[i].nc3; n++)
-        if (connect3d[i].aflag_c3[n] != FLAT)
-          exposed_pt[i][2] = NONFLAT;
-
-      //   (b) associated with an exposed edge
+      // corners basically inherit status of edges (ordered by increasing importance)
+      //   => a shared point may be simultaneously exposed + not-exposed
+      //   (a) associated with a NONFLAT exposed edge
       if (exposed_edge[i][0] == NONFLAT) {
         exposed_pt[i][0] = NONFLAT;
         exposed_pt[i][1] = NONFLAT;
@@ -2777,7 +2765,7 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
         exposed_pt[i][2] = NONFLAT;
       }
 
-      //   (c) associated with an exposed edge
+      //   (c) associated with an EXTERNAL exposed edge
       if (exposed_edge[i][0] == EXTERNAL) {
         exposed_pt[i][0] = EXTERNAL;
         exposed_pt[i][1] = EXTERNAL;
@@ -3516,7 +3504,6 @@ void FixSurfaceGlobal::walk_connections2d(int n, std::vector<int> *flat_surfs, s
   flat_surfs->push_back(n);
 
   int k, m, aflag, which, nconnect, convex_flag, contact_at_joint;
-  double r, dot, linek[3];
   int jflag = contact_surfs[n].flag;
 
   for (nconnect = 0; nconnect < (connect2d[j].np1 + connect2d[j].np2); nconnect++) {
@@ -3546,19 +3533,6 @@ void FixSurfaceGlobal::walk_connections2d(int n, std::vector<int> *flat_surfs, s
       // flat, same-type: walk
       if (processed_contacts->find(k) == processed_contacts->end())
         walk_connections2d(m, flat_surfs, processed_contacts, convex_contacts, contacts_map);
-
-      // Adjust dr if j is an exposed corner so it doesn't point into neighboring flat line
-      if (contact_surfs[n].exposed) {
-        // Get k's line vector pointing away from connection
-        MathExtra::sub3(points[lines[k].p1].x, points[lines[k].p2].x, linek);
-        if (lines[k].p1 == lines[j].p1 || lines[k].p1 == lines[j].p2)
-          MathExtra::negate3(linek);
-        MathExtra::norm3(linek);
-        dot = MathExtra::dot3(linek, contact_surfs[n].dr);
-        if (dot > 0)
-          MathExtra::scaleadd3(-dot, linek, contact_surfs[n].dr, contact_surfs[n].dr);
-      }
-
     } else {
       convex_flag = 0;
       if ((contact_surfs[n].nside == SAME_SIDE && aflag == CONVEX) ||
@@ -3569,7 +3543,7 @@ void FixSurfaceGlobal::walk_connections2d(int n, std::vector<int> *flat_surfs, s
         // convex: process later
         convex_contacts->insert(k);
       } else if (contact_at_joint) {
-        // contacting at concave joint: use normal
+        // contacting at concave joint: use normal, overriding default use of dr when exposed
         //   unlike 3D, no need to propagate thru corners so process here
         MathExtra::copy3(contact_surfs[n].surf_norm, contact_surfs[n].force_norm);
         contact_surfs[n].norm_def = 1;
@@ -3789,12 +3763,9 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m, int
     if (exposed_edge[j][2]) pte = tris[j].p1;
   }
 
-  // If triangle only touches exposed edge with a corner
-  //    maybe better to default to surf norm...
-  if (pte == -1) {
-    MathExtra::copy3(contact_surfs[n].dr, contact_surfs[n].cor_int);
-    return;
-  }
+  // If triangle only touches exposed edge with a corner, shouldn't happen
+  if (pte == -1)
+    error->one(FLERR, "Bad geometry");
 
   double jline_exposed[3];
   MathExtra::sub3(points[ptc].x, points[pte].x, jline_exposed);
@@ -3933,12 +3904,9 @@ void FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
     if (exposed_edge[j][2]) ptj = tris[j].p1;
   }
 
-  // If triangle only touches exposed edge with a corner
-  //    maybe better to default to surf norm...
-  if (ptj == -1) {
-    MathExtra::copy3(contact_surfs[n].dr, contact_surfs[n].cor_int);
-    return;
-  }
+  // If triangle only touches exposed edge with a corner, shouldn't happen
+  if (ptj == -1)
+    error->one(FLERR, "Bad geometry");
 
   double jline[3];
   MathExtra::sub3(points[ptj].x, points[pt].x, jline);
