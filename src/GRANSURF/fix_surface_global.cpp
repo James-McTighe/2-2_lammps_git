@@ -510,8 +510,9 @@ FixSurfaceGlobal::~FixSurfaceGlobal()
 void FixSurfaceGlobal::post_constructor()
 {
   if (use_history) {
-    auto cmd = fmt::format("NEIGH_HISTORY_SURFACE_GLOBAL_" + std::to_string(instance_me) + " all NEIGH_HISTORY {}",size_history);
+    auto cmd = fmt::format("NEIGH_HISTORY_SURFACE_GLOBAL_" + std::to_string(instance_me) + " all NEIGH_HISTORY {} onesided surface/global", size_history);
     fix_history = dynamic_cast<FixNeighHistory *>(modify->add_fix(cmd));
+    fix_history->fix = this;
   } else
     fix_history = nullptr;
 }
@@ -553,6 +554,7 @@ void FixSurfaceGlobal::init()
       next_index += model->sub_models[i]->size_history;
     }
   }
+  model->dt = update->dt;
 
   // one-time setup and allocation of neighbor list
   // wait until now, so neighbor settings have been made
@@ -762,14 +764,14 @@ void FixSurfaceGlobal::pre_neighbor()
   MyPage<int> *ipage = list->ipage;
 
   if (use_history) {
-    //fix_history->nlocal_neigh = nlocal;
-    //npartner = fix_history->npartner;         // # of touching partners of each atom
-    //partner = fix_history->partner;           // global atom IDs for the partners
-    //valuepartner = fix_history->valuepartner; // values for the partners
+    fix_history->nlocal_neigh = nlocal;
+    npartner = fix_history->get_npartner();         // # of touching partners of each atom
+    partner = fix_history->get_partner();           // global atom IDs for the partners
+    valuepartner = fix_history->get_valuepartner(); // values for the partners
+    ipage_atom = fix_history->get_ipage_atom();     // pages of partner atom IDs
+    dpage_atom = fix_history->get_dpage_atom();     // pages of partner values
     firstflag = fix_history->firstflag;       // ptr to each atom's neighbor flag
     firstvalue = fix_history->firstvalue;     // ptr to each atom's values
-    //ipage_atom = listhistory->ipage_atom;     // pages of partner atom IDs
-    //dpage_atom = listhistory->dpage_atom;     // pages of partner values
     dnum = fix_history->get_dnum();
     dnumbytes = dnum * sizeof(double);
   }
@@ -817,31 +819,9 @@ void FixSurfaceGlobal::pre_neighbor()
       radsum = radi + radsurf[j] + skin;
       cutsq = radsum * radsum;
       if (rsq <= cutsq) {
-        // No history bit appended, therefore in fix_neigh_history.cpp
-        //   post force it won't grab a nonexistant atom tag of surface index
-        // However, pre_exchange still will...
+        // Note: saves index of surf (like its tag) so will not work
+        //       with default FixNeighHist methods that grab partner tags
         neighptr[n] = j;
-
-        if (use_history) {
-          if (rsq < radsum * radsum) {
-            for (m = 0; m < npartner[i]; m++)
-              if (partner[i][m] == j) break;
-            if (m < npartner[i]) {
-              touchptr[n] = 1;
-              memcpy(&valueptr[nn], &valuepartner[i][dnum * m], dnumbytes);
-              nn += dnum;
-            } else {
-              touchptr[n] = 0;
-              memcpy(&valueptr[nn], zeroes, dnumbytes);
-              nn += dnum;
-            }
-          } else {
-            touchptr[n] = 0;
-            memcpy(&valueptr[nn], zeroes, dnumbytes);
-            nn += dnum;
-          }
-        }
-
         n++;
       }
     }
@@ -853,14 +833,6 @@ void FixSurfaceGlobal::pre_neighbor()
     if (ipage->status())
       error->one(FLERR,"Fix surface/global neighbor list overflow, "
                  "boost neigh_modify one");
-
-    // JTC: I think this is outdated
-    //if (use_history) {
-    //  firstflag[i] = touchptr;
-    //  firstvalue[i] = valueptr;
-    //  ipage_atom->vgot(n);
-    //  dpage_atom->vgot(nn);
-    //}
   }
 
   list->inum = inum;
@@ -1215,14 +1187,15 @@ void FixSurfaceGlobal::post_force(int vflag)
       model->vj = vc;
       model->omegaj = omegac;
 
-      if (use_history) model->touch = touch[jj];
+      if (use_history) {
+        jj = contact_surfs[n].neigh_index;
+        model->touch = touch[jj];
+      }
 
       // guaranteed in contact, but need to calculate intermediate variables
       touch_flag = model->check_contact();
 
       if (use_history) {
-        jj = contact_surfs[n].neigh_index;
-
         // Check if another flat contact has a stored history
         if (touch[jj] != 1) {
           for (it = 0; it < flat_surfs->size(); it++) {

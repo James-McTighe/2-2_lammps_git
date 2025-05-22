@@ -16,6 +16,7 @@
 #include "atom.h"
 #include "comm.h"
 #include "error.h"
+#include "fix_surface_global.h"
 #include "force.h"
 #include "memory.h"
 #include "modify.h"
@@ -35,7 +36,7 @@ FixNeighHistory::FixNeighHistory(LAMMPS *lmp, int narg, char **arg) :
     Fix(lmp, narg, arg), pair(nullptr), npartner(nullptr), partner(nullptr), valuepartner(nullptr),
     ipage_atom(nullptr), dpage_atom(nullptr), ipage_neigh(nullptr), dpage_neigh(nullptr)
 {
-  if (narg != 4 && narg != 5) error->all(FLERR, "Illegal fix NEIGH_HISTORY command");
+  if (narg < 4) error->all(FLERR, "Illegal fix NEIGH_HISTORY command");
 
   restart_peratom = 1;
   restart_global = 1;
@@ -53,10 +54,17 @@ FixNeighHistory::FixNeighHistory(LAMMPS *lmp, int narg, char **arg) :
   for (int i = 0; i < dnum; i++) zeroes[i] = 0.0;
 
   onesided = 0;
-  if (narg == 5) {
-    if (strcmp(arg[4], "onesided") == 0) onesided = 1;
-    else error->all(FLERR, "Illegal fix neigh/history command");
+  surface_global = 0;
+  int iarg = 4;
+  while (iarg < narg) {
+    if (strcmp(arg[iarg], "onesided") == 0) onesided = 1;
+    else if (strcmp(arg[iarg], "surface/global") == 0) surface_global = 1;
+    else error->all(FLERR, "Illegal fix neigh/history command {}", arg[iarg]);
+    iarg += 1;
   }
+
+  if (surface_global && !onesided)
+    error->all(FLERR, "Surface global must be used with onesided");
 
   if (newton_pair)
     comm_reverse = 1;    // just for single npartner value
@@ -264,7 +272,11 @@ void FixNeighHistory::pre_exchange_onesided()
   for (i = 0; i < nlocal_neigh; i++) npartner[i] = 0;
 
   tagint *tag = atom->tag;
-  NeighList *list = pair->list;
+  NeighList *list;
+  if (surface_global)
+    list = fix->list;
+  else
+    list = pair->list;
   inum = list->inum;
   ilist = list->ilist;
   numneigh = list->numneigh;
@@ -310,7 +322,10 @@ void FixNeighHistory::pre_exchange_onesided()
         j = jlist[jj];
         j &= NEIGHMASK;
         m = npartner[i]++;
-        partner[i][m] = tag[j];
+        if (surface_global)
+          partner[i][m] = j;
+        else
+          partner[i][m] = tag[j];
         memcpy(&valuepartner[i][dnum * m], onevalues, dnumbytes);
       }
     }
@@ -618,7 +633,11 @@ void FixNeighHistory::post_neighbor()
   dpage_neigh->reset();
 
   tagint *tag = atom->tag;
-  NeighList *list = pair->list;
+  NeighList *list;
+  if (surface_global)
+    list = fix->list;
+  else
+    list = pair->list;
   inum = list->inum;
   ilist = list->ilist;
   numneigh = list->numneigh;
@@ -636,7 +655,7 @@ void FixNeighHistory::post_neighbor()
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
 
-      if (use_bit_flag) {
+      if (use_bit_flag && !surface_global) {
         rflag = histmask(j) | pair->beyond_contact;
         j &= HISTMASK;
         jlist[jj] = j;
@@ -654,9 +673,14 @@ void FixNeighHistory::post_neighbor()
       // apply a mask for history (and they could use the bits for special bonds)
 
       if (rflag) {
-        jtag = tag[j];
-        for (m = 0; m < np; m++)
-          if (partner[i][m] == jtag) break;
+        if (surface_global) {
+          for (m = 0; m < np; m++)
+            if (partner[i][m] == j) break;
+        } else {
+          jtag = tag[j];
+          for (m = 0; m < np; m++)
+            if (partner[i][m] == jtag) break;
+        }
         if (m < np) {
           allflags[jj] = 1;
           memcpy(&allvalues[nn], &valuepartner[i][dnum * m], dnumbytes);
