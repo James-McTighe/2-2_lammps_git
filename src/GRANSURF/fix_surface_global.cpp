@@ -3726,20 +3726,7 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
 
   // Next, find j's exposed edge
   int ptc, pte;
-  ptc = pte = -1;
-  if (contact_surfs[n].flag == -4) {
-    ptc = tris[j].p1;
-    if (exposed_edge[j][0]) pte = tris[j].p2;
-    if (exposed_edge[j][2]) pte = tris[j].p3;
-  } else if (contact_surfs[n].flag == -5) {
-    ptc = tris[j].p2;
-    if (exposed_edge[j][0]) pte = tris[j].p1;
-    if (exposed_edge[j][1]) pte = tris[j].p3;
-  } else if (contact_surfs[n].flag == -6) {
-    ptc = tris[j].p3;
-    if (exposed_edge[j][1]) pte = tris[j].p2;
-    if (exposed_edge[j][2]) pte = tris[j].p1;
-  }
+  find_exposed_edge(j, contact_surfs[n].flag, ptc, pte);
 
   // If triangle only touches exposed edge with a corner, shouldn't happen
   if (pte == -1)
@@ -3750,12 +3737,12 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
   MathExtra::norm3(jline_exposed);
 
   // Then check if k should correct j
-
   if (contact_surfs[n].smooth_ext > EPSILON) {
     // If external to the composite, check to see if k has an exposed edge attached to the same point
 
-    // external edges, not just abutting nonflat (lower priority)
+    // actually external edges, not just abutting nonflat
     pte = -1;
+
     if (ptc == tris[k].p1) {
       if (exposed_edge[k][0] == EXTERNAL) pte = tris[k].p2;
       if (exposed_edge[k][2] == EXTERNAL) pte = tris[k].p3;
@@ -3775,7 +3762,6 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
     MathExtra::norm3(kline_exposed);
 
     // If so, does dr point towards this direction?
-    //   note: line points towards corner, so want anitaligned
     dot = MathExtra::dot3(kline_exposed, drnorm);
     if (dot > EPSILON) return;
   } else {
@@ -3866,25 +3852,8 @@ void FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
   // Get j's exposed edge vector
   //   Note: if there's two, this will arbitrarily pick one
 
-  int pt;
-  int ptj = -1;
-  if (contact_surfs[n].flag == -4) {
-    pt = tris[j].p1;
-    if (exposed_edge[j][0]) ptj = tris[j].p2;
-    if (exposed_edge[j][2]) ptj = tris[j].p3;
-  } else if (contact_surfs[n].flag == -5) {
-    pt = tris[j].p2;
-    if (exposed_edge[j][0]) ptj = tris[j].p1;
-    if (exposed_edge[j][1]) ptj = tris[j].p3;
-  } else if (contact_surfs[n].flag == -6) {
-    pt = tris[j].p3;
-    if (exposed_edge[j][1]) ptj = tris[j].p2;
-    if (exposed_edge[j][2]) ptj = tris[j].p1;
-  }
-
-  // If triangle only touches exposed edge with a corner, shouldn't happen
-  if (ptj == -1)
-    error->one(FLERR, "Bad geometry");
+  int pt, ptj;
+  find_exposed_edge(j, contact_surfs[n].flag, pt, ptj);
 
   double jline[3];
   MathExtra::sub3(points[ptj].x, points[pt].x, jline);
@@ -4042,6 +4011,9 @@ void FixSurfaceGlobal::process_convex_surfs(std::vector<int> *composite_surfs, s
   double tmp, dist_convex, min_dist, new_overlap;
   double tmp1[3], tmp2[3];
 
+  // Whether surf & composite contacts are external
+  int external = contact_surfs[n].exposed == EXTERNAL && contact_surfs[n].smooth_ext > EPSILON;
+
   // First, check whether this flat structure is hiding another
   //   If so, more heavily weight surfs abutting convex edge to smooth transition
   //   Preserve max overlap
@@ -4086,8 +4058,8 @@ void FixSurfaceGlobal::process_convex_surfs(std::vector<int> *composite_surfs, s
         if (contact_surfs[n].dist != 0)
           new_overlap *= min_dist / contact_surfs[n].dist;
 
-        // If exposed and contact is external to the composite, preserve part of original overlap
-        if (contact_surfs[n].exposed && contact_surfs[n].smooth_ext > EPSILON)
+        // If external, preserve part of original overlap
+        if (external)
           new_overlap = new_overlap * (1.0 - contact_surfs[n].smooth_ext) + contact_surfs[n].overlap * contact_surfs[n].smooth_ext;
         contact_surfs[n].overlap = new_overlap;
       }
@@ -4114,8 +4086,7 @@ void FixSurfaceGlobal::process_convex_surfs(std::vector<int> *composite_surfs, s
       double weight = 0;
 
       if (contact_surfs[n].exposed == EXTERNAL) {
-        // if it's an external contact, adjust weight based on what proportion
-        //  of dr lies outside of the plane of jnorm and j's exposed edge
+        // If external, adjust weight based on proportion of dr that lies outside of the plane of jnorm and j's exposed edge
 
         int j = contact_surfs[n].index;
         int jflag = contact_surfs[n].flag;
@@ -4262,4 +4233,30 @@ int FixSurfaceGlobal::rescale_overlaps(double new_max_overlap, std::vector<int> 
   }
 
   return 0;
+}
+
+/* ----------------------------------------------------------------------
+   Given a contact flag, find the associated exposed edge
+     if both edges are exposed, arbitrarily pick 1st
+------------------------------------------------------------------------- */
+
+void FixSurfaceGlobal::find_exposed_edge(int j, int flag, int &pta, int &ptb)
+{
+  pta = ptb = -1;
+  if (flag == -4) {
+    pta = tris[j].p1;
+    if (exposed_edge[j][0]) ptb = tris[j].p2;
+    if (exposed_edge[j][2]) ptb = tris[j].p3;
+  } else if (flag == -5) {
+    pta = tris[j].p2;
+    if (exposed_edge[j][0]) ptb = tris[j].p1;
+    if (exposed_edge[j][1]) ptb = tris[j].p3;
+  } else if (flag == -6) {
+    pta = tris[j].p3;
+    if (exposed_edge[j][1]) ptb = tris[j].p2;
+    if (exposed_edge[j][2]) ptb = tris[j].p1;
+  }
+
+  if (pta == -1 || ptb == -1)
+    error->one(FLERR, "Bad geometry");
 }

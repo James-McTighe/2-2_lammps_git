@@ -236,7 +236,9 @@ class FixSurfaceGlobal : public FixSurface {
   void adjust_exposed_corner_ext(int, int, int, int);
   void process_convex_surfs(std::vector<int> *, std::unordered_set<int>*);
   void process_concave_tris(std::vector<int> *, std::unordered_set<int> *);
+
   int rescale_overlaps(double, std::vector<int> *);
+  void find_exposed_edge(int, int, int &, int &);
 
   void surface_connectivity_attributes();
 
