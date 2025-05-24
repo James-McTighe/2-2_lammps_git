@@ -195,11 +195,6 @@ class FixSurfaceGlobal : public FixSurface {
   Connect2d *connect2d;             // 2d connection info
   Connect3d *connect3d;             // 3d connection info
 
-  // precalculated per-point metrics
-
-  int **exposed_pt;      // if point is exposed, ntri x 3 array
-  int **exposed_edge;    // if edge is exposed, ntri x 3 array
-
   // struct for storing contact data
 
   struct ContactSurf {

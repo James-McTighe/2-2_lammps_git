@@ -704,6 +704,8 @@ int FixSurfaceLocal::pack_border(int n, int *list, double *buf)
         np2 = connect2d[ic].np2;
         buf[m++] = ubuf(np1).d;
         buf[m++] = ubuf(np2).d;
+        buf[m++] = ubuf(connect2d[ic].exposed_pt[0]).d;
+        buf[m++] = ubuf(connect2d[ic].exposed_pt[1]).d;
         if (np1)
           for (k = 0; k < np1; k++) {
             buf[m++] = ubuf(connect2d[ic].neigh_p1[k]).d;
@@ -737,6 +739,9 @@ int FixSurfaceLocal::pack_border(int n, int *list, double *buf)
         buf[m++] = ubuf(ne1).d;
         buf[m++] = ubuf(ne2).d;
         buf[m++] = ubuf(ne3).d;
+        buf[m++] = ubuf(connect3d[ic].exposed_edge[0]).d;
+        buf[m++] = ubuf(connect3d[ic].exposed_edge[1]).d;
+        buf[m++] = ubuf(connect3d[ic].exposed_edge[2]).d;
         if (ne1)
           for (k = 0; k < ne1; k++) {
             buf[m++] = ubuf(connect3d[ic].neigh_e1[k]).d;
@@ -765,6 +770,9 @@ int FixSurfaceLocal::pack_border(int n, int *list, double *buf)
         buf[m++] = ubuf(nc1).d;
         buf[m++] = ubuf(nc2).d;
         buf[m++] = ubuf(nc3).d;
+        buf[m++] = ubuf(connect3d[ic].exposed_pt[0]).d;
+        buf[m++] = ubuf(connect3d[ic].exposed_pt[1]).d;
+        buf[m++] = ubuf(connect3d[ic].exposed_pt[2]).d;
         if (nc1)
           for (k = 0; k < nc1; k++) {
             buf[m++] = ubuf(connect3d[ic].neigh_c1[k]).d;
@@ -818,6 +826,9 @@ int FixSurfaceLocal::unpack_border(int n, int first, double *buf)
         np2 = (int) ubuf(buf[m++]).i;
         connect2d[j].np1 = np1;
         connect2d[j].np2 = np2;
+
+        connect2d[j].exposed_pt[0] = (int) ubuf(buf[m++]).i;
+        connect2d[j].exposed_pt[1] = (int) ubuf(buf[m++]).i;
 
         if (np1) {
           connect2d[j].neigh_p1 = tpc->get(np1,pool2d[j].neigh_p1);
@@ -877,6 +888,10 @@ int FixSurfaceLocal::unpack_border(int n, int first, double *buf)
         connect3d[j].ne1 = ne1;
         connect3d[j].ne2 = ne2;
         connect3d[j].ne3 = ne3;
+
+        connect3d[j].exposed_edge[0] = (int) ubuf(buf[m++]).i;
+        connect3d[j].exposed_edge[1] = (int) ubuf(buf[m++]).i;
+        connect3d[j].exposed_edge[2] = (int) ubuf(buf[m++]).i;
 
         if (ne1) {
           connect3d[j].neigh_e1 = tpc->get(ne1,pool3d[j].neigh_e1);
@@ -938,6 +953,10 @@ int FixSurfaceLocal::unpack_border(int n, int first, double *buf)
         connect3d[j].nc1 = nc1;
         connect3d[j].nc2 = nc2;
         connect3d[j].nc3 = nc3;
+
+        connect3d[j].exposed_pt[0] = (int) ubuf(buf[m++]).i;
+        connect3d[j].exposed_pt[1] = (int) ubuf(buf[m++]).i;
+        connect3d[j].exposed_pt[2] = (int) ubuf(buf[m++]).i;
 
         if (nc1) {
           connect3d[j].neigh_c1 = tpc->get(nc1,pool3d[j].neigh_c1);
@@ -1024,6 +1043,10 @@ int FixSurfaceLocal::pack_exchange(int i, double *buf)
       np2 = connect2d[j].np2;
       buf[m++] = ubuf(np1).d;
       buf[m++] = ubuf(np2).d;
+
+      buf[m++] = ubuf(connect2d[j].exposed_pt[0]).d;
+      buf[m++] = ubuf(connect2d[j].exposed_pt[1]).d;
+
       if (np1)
         for (k = 0; k < np1; k++) {
           buf[m++] = ubuf(connect2d[j].neigh_p1[k]).d;
@@ -1054,6 +1077,11 @@ int FixSurfaceLocal::pack_exchange(int i, double *buf)
       buf[m++] = ubuf(ne1).d;
       buf[m++] = ubuf(ne2).d;
       buf[m++] = ubuf(ne3).d;
+
+      buf[m++] = ubuf(connect3d[j].exposed_edge[0]).d;
+      buf[m++] = ubuf(connect3d[j].exposed_edge[1]).d;
+      buf[m++] = ubuf(connect3d[j].exposed_edge[2]).d;
+
       if (ne1)
         for (k = 0; k < ne1; k++) {
           buf[m++] = ubuf(connect3d[j].neigh_e1[k]).d;
@@ -1082,6 +1110,11 @@ int FixSurfaceLocal::pack_exchange(int i, double *buf)
       buf[m++] = ubuf(nc1).d;
       buf[m++] = ubuf(nc2).d;
       buf[m++] = ubuf(nc3).d;
+
+      buf[m++] = ubuf(connect3d[j].exposed_pt[0]).d;
+      buf[m++] = ubuf(connect3d[j].exposed_pt[1]).d;
+      buf[m++] = ubuf(connect3d[j].exposed_pt[2]).d;
+
       if (nc1)
         for (k = 0; k < nc1; k++) {
           buf[m++] = ubuf(connect3d[j].neigh_c1[k]).d;
@@ -1130,6 +1163,9 @@ int FixSurfaceLocal::unpack_exchange(int nlocal, double *buf)
       np2 = (int) ubuf(buf[m++]).i;
       connect2d[nlocal_connect].np1 = np1;
       connect2d[nlocal_connect].np2 = np2;
+
+      connect2d[nlocal_connect].exposed_pt[0] = (int) ubuf(buf[m++]).i;
+      connect2d[nlocal_connect].exposed_pt[1] = (int) ubuf(buf[m++]).i;
 
       if (np1) {
         connect2d[nlocal_connect].neigh_p1 = tpc->get(np1,pool2d[nlocal_connect].neigh_p1);
@@ -1185,6 +1221,10 @@ int FixSurfaceLocal::unpack_exchange(int nlocal, double *buf)
       connect3d[nlocal_connect].ne1 = ne1;
       connect3d[nlocal_connect].ne2 = ne2;
       connect3d[nlocal_connect].ne3 = ne3;
+
+      connect3d[nlocal_connect].exposed_edge[0] = (int) ubuf(buf[m++]).i;
+      connect3d[nlocal_connect].exposed_edge[1] = (int) ubuf(buf[m++]).i;
+      connect3d[nlocal_connect].exposed_edge[2] = (int) ubuf(buf[m++]).i;
 
       if (ne1) {
         connect3d[nlocal_connect].neigh_e1 = tpc->get(ne1,pool3d[nlocal_connect].neigh_e1);
@@ -1246,6 +1286,10 @@ int FixSurfaceLocal::unpack_exchange(int nlocal, double *buf)
       connect3d[nlocal_connect].nc1 = nc1;
       connect3d[nlocal_connect].nc2 = nc2;
       connect3d[nlocal_connect].nc3 = nc3;
+
+      connect3d[nlocal_connect].exposed_pt[0] = (int) ubuf(buf[m++]).i;
+      connect3d[nlocal_connect].exposed_pt[1] = (int) ubuf(buf[m++]).i;
+      connect3d[nlocal_connect].exposed_pt[2] = (int) ubuf(buf[m++]).i;
 
       if (nc1) {
         connect3d[nlocal_connect].neigh_c1 = tpc->get(nc1,pool3d[nlocal_connect].neigh_c1);

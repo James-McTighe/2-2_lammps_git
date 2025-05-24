@@ -346,9 +346,6 @@ FixSurfaceGlobal::FixSurfaceGlobal(LAMMPS *lmp, int narg, char **arg) :
   xsurf = vsurf = omegasurf = nullptr;
   radsurf = nullptr;
 
-  exposed_pt = nullptr;
-  exposed_edge = nullptr;
-
   contact_surfs = nullptr;
   nmax_contact_surfs = 0;
 
@@ -463,9 +460,6 @@ FixSurfaceGlobal::~FixSurfaceGlobal()
 
   memory->sfree(connect2d);
   memory->sfree(connect3d);
-
-  memory->destroy(exposed_pt);
-  memory->destroy(exposed_edge);
 
   memory->sfree(contact_surfs);
 
@@ -1023,18 +1017,18 @@ void FixSurfaceGlobal::post_force(int vflag)
         MathExtra::copy3(lines[j].norm, norm);
         dot = MathExtra::dot3(norm, dr);
         jtype = lines[j].type;
-        if (jflag == -1) exposed_flag = exposed_pt[j][0];
-        if (jflag == -2) exposed_flag = exposed_pt[j][1];
+        if (jflag == -1) exposed_flag = connect2d[j].exposed_pt[0];
+        if (jflag == -2) exposed_flag = connect2d[j].exposed_pt[1];
       } else {
         MathExtra::copy3(tris[j].norm, norm);
         dot = MathExtra::dot3(norm, dr);
         jtype = tris[j].type;
-        if (jflag == -1) exposed_flag = exposed_edge[j][0];
-        if (jflag == -2) exposed_flag = exposed_edge[j][1];
-        if (jflag == -3) exposed_flag = exposed_edge[j][2];
-        if (jflag == -4) exposed_flag = exposed_pt[j][0];
-        if (jflag == -5) exposed_flag = exposed_pt[j][1];
-        if (jflag == -6) exposed_flag = exposed_pt[j][2];
+        if (jflag == -1) exposed_flag = connect3d[j].exposed_edge[0];
+        if (jflag == -2) exposed_flag = connect3d[j].exposed_edge[1];
+        if (jflag == -3) exposed_flag = connect3d[j].exposed_edge[2];
+        if (jflag == -4) exposed_flag = connect3d[j].exposed_pt[0];
+        if (jflag == -5) exposed_flag = connect3d[j].exposed_pt[1];
+        if (jflag == -6) exposed_flag = connect3d[j].exposed_pt[2];
       }
 
       if (dot >= 0) nsidej = SAME_SIDE;
@@ -1718,9 +1712,6 @@ double FixSurfaceGlobal::memory_usage()
   bytes += memory->usage(vsurf,nsurf,3);
   bytes += memory->usage(omegasurf,nsurf,3);
   bytes += memory->usage(radsurf,nsurf);
-  bytes += memory->usage(exposed_pt,nsurf);
-  if (dimension == 3)
-    bytes += memory->usage(exposed_edge,nsurf);
 
   if (anymove) {
     bytes += memory->usage(points_lastneigh,npoints,3);
@@ -2670,10 +2661,9 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
 
   // Classify whether a pt is exposed (no flat connections)
   if (dimension == 2) {
-    memory->create(exposed_pt, nsurf, 2, "surface/global:exposed_pt");
     for (i = 0; i < nsurf; i++) {
-      exposed_pt[i][0] = NONFLAT;
-      exposed_pt[i][1] = NONFLAT;
+      connect2d[i].exposed_pt[0] = NONFLAT;
+      connect2d[i].exposed_pt[1] = NONFLAT;
     }
 
     for (i = 0; i < nsurf; i++) {
@@ -2681,26 +2671,23 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
       //   (a) has no flat connections (starts as NONFLAT)
       for (n = 0; n < connect2d[i].np1; n++)
         if (connect2d[i].aflag_p1[n] == FLAT)
-          exposed_pt[i][0] = INTERNAL;
+          connect2d[i].exposed_pt[0] = INTERNAL;
 
       for (n = 0; n < connect2d[i].np2; n++)
         if (connect2d[i].aflag_p2[n] == FLAT)
-          exposed_pt[i][1] = INTERNAL;
+          connect2d[i].exposed_pt[1] = INTERNAL;
 
       //   (b) unconnected on border
       if (connect2d[i].np1 == 0)
-        exposed_pt[i][0] = EXTERNAL;
+        connect2d[i].exposed_pt[0] = EXTERNAL;
       if (connect2d[i].np2 == 0)
-        exposed_pt[i][1] = EXTERNAL;
+        connect2d[i].exposed_pt[1] = EXTERNAL;
     }
   } else {
-    memory->create(exposed_pt, nsurf, 3, "surface/global:exposed_pt");
-    memory->create(exposed_edge, nsurf, 3, "surface/global:exposed_edge");
-
     for (i = 0; i < nsurf; i++) {
       for (a = 0; a < 3; a++) {
-        exposed_edge[i][a] = NONFLAT;
-        exposed_pt[i][a] = INTERNAL;
+        connect3d[i].exposed_edge[a] = NONFLAT;
+        connect3d[i].exposed_pt[a] = INTERNAL;
       }
     }
 
@@ -2709,50 +2696,50 @@ void FixSurfaceGlobal::surface_connectivity_attributes()
       //   (a) has no flat connections (starts as NONFLAT)
       for (n = 0; n < connect3d[i].ne1; n++)
         if (connect3d[i].aflag_e1[n] == FLAT)
-          exposed_edge[i][0] = INTERNAL;
+          connect3d[i].exposed_edge[0] = INTERNAL;
       for (n = 0; n < connect3d[i].ne2; n++)
         if (connect3d[i].aflag_e2[n] == FLAT)
-          exposed_edge[i][1] = INTERNAL;
+          connect3d[i].exposed_edge[1] = INTERNAL;
       for (n = 0; n < connect3d[i].ne3; n++)
         if (connect3d[i].aflag_e3[n] == FLAT)
-          exposed_edge[i][2] = INTERNAL;
+          connect3d[i].exposed_edge[2] = INTERNAL;
 
       //   (b) unconnected on border
       if (connect3d[i].ne1 == 0)
-        exposed_edge[i][0] = EXTERNAL;
+        connect3d[i].exposed_edge[0] = EXTERNAL;
       if (connect3d[i].ne2 == 0)
-        exposed_edge[i][1] = EXTERNAL;
+        connect3d[i].exposed_edge[1] = EXTERNAL;
       if (connect3d[i].ne3 == 0)
-        exposed_edge[i][2] = EXTERNAL;
+        connect3d[i].exposed_edge[2] = EXTERNAL;
 
       // corners basically inherit status of edges (ordered by increasing importance)
       //   => a shared point may be simultaneously exposed + not-exposed
       //   (a) associated with a NONFLAT exposed edge
-      if (exposed_edge[i][0] == NONFLAT) {
-        exposed_pt[i][0] = NONFLAT;
-        exposed_pt[i][1] = NONFLAT;
+      if (connect3d[i].exposed_edge[0] == NONFLAT) {
+        connect3d[i].exposed_pt[0] = NONFLAT;
+        connect3d[i].exposed_pt[1] = NONFLAT;
       }
-      if (exposed_edge[i][1] == NONFLAT) {
-        exposed_pt[i][1] = NONFLAT;
-        exposed_pt[i][2] = NONFLAT;
+      if (connect3d[i].exposed_edge[1] == NONFLAT) {
+        connect3d[i].exposed_pt[1] = NONFLAT;
+        connect3d[i].exposed_pt[2] = NONFLAT;
       }
-      if (exposed_edge[i][2] == NONFLAT) {
-        exposed_pt[i][0] = NONFLAT;
-        exposed_pt[i][2] = NONFLAT;
+      if (connect3d[i].exposed_edge[2] == NONFLAT) {
+        connect3d[i].exposed_pt[0] = NONFLAT;
+        connect3d[i].exposed_pt[2] = NONFLAT;
       }
 
       //   (c) associated with an EXTERNAL exposed edge
-      if (exposed_edge[i][0] == EXTERNAL) {
-        exposed_pt[i][0] = EXTERNAL;
-        exposed_pt[i][1] = EXTERNAL;
+      if (connect3d[i].exposed_edge[0] == EXTERNAL) {
+        connect3d[i].exposed_pt[0] = EXTERNAL;
+        connect3d[i].exposed_pt[1] = EXTERNAL;
       }
-      if (exposed_edge[i][1] == EXTERNAL) {
-        exposed_pt[i][1] = EXTERNAL;
-        exposed_pt[i][2] = EXTERNAL;
+      if (connect3d[i].exposed_edge[1] == EXTERNAL) {
+        connect3d[i].exposed_pt[1] = EXTERNAL;
+        connect3d[i].exposed_pt[2] = EXTERNAL;
       }
-      if (exposed_edge[i][2] == EXTERNAL) {
-        exposed_pt[i][0] = EXTERNAL;
-        exposed_pt[i][2] = EXTERNAL;
+      if (connect3d[i].exposed_edge[2] == EXTERNAL) {
+        connect3d[i].exposed_pt[0] = EXTERNAL;
+        connect3d[i].exposed_pt[2] = EXTERNAL;
       }
     }
   }
@@ -3744,14 +3731,14 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
     pte = -1;
 
     if (ptc == tris[k].p1) {
-      if (exposed_edge[k][0] == EXTERNAL) pte = tris[k].p2;
-      if (exposed_edge[k][2] == EXTERNAL) pte = tris[k].p3;
+      if (connect3d[k].exposed_edge[0] == EXTERNAL) pte = tris[k].p2;
+      if (connect3d[k].exposed_edge[2] == EXTERNAL) pte = tris[k].p3;
     } else if (ptc == tris[k].p2) {
-      if (exposed_edge[k][0] == EXTERNAL) pte = tris[k].p1;
-      if (exposed_edge[k][1] == EXTERNAL) pte = tris[k].p3;
+      if (connect3d[k].exposed_edge[0] == EXTERNAL) pte = tris[k].p1;
+      if (connect3d[k].exposed_edge[1] == EXTERNAL) pte = tris[k].p3;
     } else if (ptc == tris[k].p3) {
-      if (exposed_edge[k][1] == EXTERNAL) pte = tris[k].p2;
-      if (exposed_edge[k][2] == EXTERNAL) pte = tris[k].p1;
+      if (connect3d[k].exposed_edge[1] == EXTERNAL) pte = tris[k].p2;
+      if (connect3d[k].exposed_edge[2] == EXTERNAL) pte = tris[k].p1;
     }
 
     if (pte == -1)
@@ -3874,14 +3861,14 @@ void FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
     if (pt == tris[k].p1) ptk = tris[k].p3;
     if (pt == tris[k].p3) ptk = tris[k].p1;
   } else if (contact_surfs[m].flag == -4) {
-    if (exposed_edge[k][0]) ptk = tris[k].p2;
-    if (exposed_edge[k][2]) ptk = tris[k].p3;
+    if (connect3d[k].exposed_edge[0]) ptk = tris[k].p2;
+    if (connect3d[k].exposed_edge[2]) ptk = tris[k].p3;
   } else if (contact_surfs[m].flag == -5) {
-    if (exposed_edge[k][0]) ptk = tris[k].p1;
-    if (exposed_edge[k][1]) ptk = tris[k].p3;
+    if (connect3d[k].exposed_edge[0]) ptk = tris[k].p1;
+    if (connect3d[k].exposed_edge[1]) ptk = tris[k].p3;
   } else if (contact_surfs[m].flag == -6) {
-    if (exposed_edge[k][1]) ptk = tris[k].p2;
-    if (exposed_edge[k][2]) ptk = tris[k].p1;
+    if (connect3d[k].exposed_edge[1]) ptk = tris[k].p2;
+    if (connect3d[k].exposed_edge[2]) ptk = tris[k].p1;
   }
 
   if (ptk == -1)
@@ -4105,16 +4092,16 @@ void FixSurfaceGlobal::process_convex_surfs(std::vector<int> *composite_surfs, s
           pt2 = tris[j].p3;
         } else if (jflag == -4) {
           pt1 = tris[j].p1;
-          if (exposed_edge[j][0]) pt2 = tris[j].p2;
-          if (exposed_edge[j][2]) pt2 = tris[j].p3;
+          if (connect3d[j].exposed_edge[0]) pt2 = tris[j].p2;
+          if (connect3d[j].exposed_edge[2]) pt2 = tris[j].p3;
         } else if (jflag == -5) {
           pt1 = tris[j].p2;
-          if (exposed_edge[j][0]) pt2 = tris[j].p1;
-          if (exposed_edge[j][1]) pt2 = tris[j].p3;
+          if (connect3d[j].exposed_edge[0]) pt2 = tris[j].p1;
+          if (connect3d[j].exposed_edge[1]) pt2 = tris[j].p3;
         } else if (jflag == -6) {
           pt1 = tris[j].p3;
-          if (exposed_edge[j][1]) pt2 = tris[j].p2;
-          if (exposed_edge[j][2]) pt2 = tris[j].p1;
+          if (connect3d[j].exposed_edge[1]) pt2 = tris[j].p2;
+          if (connect3d[j].exposed_edge[2]) pt2 = tris[j].p1;
         }
 
         if (pt1 == -1 || pt2 == -1)
@@ -4245,16 +4232,16 @@ void FixSurfaceGlobal::find_exposed_edge(int j, int flag, int &pta, int &ptb)
   pta = ptb = -1;
   if (flag == -4) {
     pta = tris[j].p1;
-    if (exposed_edge[j][0]) ptb = tris[j].p2;
-    if (exposed_edge[j][2]) ptb = tris[j].p3;
+    if (connect3d[j].exposed_edge[0]) ptb = tris[j].p2;
+    if (connect3d[j].exposed_edge[2]) ptb = tris[j].p3;
   } else if (flag == -5) {
     pta = tris[j].p2;
-    if (exposed_edge[j][0]) ptb = tris[j].p1;
-    if (exposed_edge[j][1]) ptb = tris[j].p3;
+    if (connect3d[j].exposed_edge[0]) ptb = tris[j].p1;
+    if (connect3d[j].exposed_edge[1]) ptb = tris[j].p3;
   } else if (flag == -6) {
     pta = tris[j].p3;
-    if (exposed_edge[j][1]) ptb = tris[j].p2;
-    if (exposed_edge[j][2]) ptb = tris[j].p1;
+    if (connect3d[j].exposed_edge[1]) ptb = tris[j].p2;
+    if (connect3d[j].exposed_edge[2]) ptb = tris[j].p1;
   }
 
   if (pta == -1 || ptb == -1)
