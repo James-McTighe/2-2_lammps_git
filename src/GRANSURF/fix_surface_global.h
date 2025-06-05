@@ -192,8 +192,8 @@ class FixSurfaceGlobal : public FixSurface {
 
   // per-surface 2d/3d connectivity
 
-  Connect2d *connect2d;             // 2d connection info
-  Connect3d *connect3d;             // 3d connection info
+  Connect2d *connect2d;       // 2d connection info
+  Connect3d *connect3d;       // 3d connection info
 
   class ContactSurf *contact_surfs;
   int nmax_contact_surfs;
