@@ -1057,6 +1057,7 @@ void FixSurfaceGlobal::post_force(int vflag)
       MathExtra::zero3(contact_surfs[n_contact_surfs].cor_int);
       MathExtra::zero3(contact_surfs[n_contact_surfs].cor_ext);
       contact_surfs[n_contact_surfs].int_overlap = -1;
+      contact_surfs[n_contact_surfs].ext_overlap = -1;
 
       // Ensure interior contacts always win in a tie, needed for convex flat structures
       //   that calculate distance to the corner to smooth turning
@@ -3698,6 +3699,10 @@ void FixSurfaceGlobal::walk_connections3d(int n, std::vector<int> *composite_sur
 
 void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
 {
+  // Skip if smoothed to nothing
+  if (contact_surfs[n].smooth_ext == 1)
+    return;
+
   // Already adjusted by closer surf
   if (contact_surfs[n].int_overlap >= contact_surfs[m].overlap)
     return;
@@ -3739,12 +3744,17 @@ void FixSurfaceGlobal::adjust_exposed_corner_int(int j, int k, int n, int m)
 
 void FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
 {
+  // Skip if smoothed to nothing
+  if (contact_surfs[n].smooth_ext == 0)
+    return;
+
   // Already adjusted by closer surf
-  if (MathExtra::lensq3(contact_surfs[n].cor_ext) > EPSILON)
+  if (contact_surfs[n].ext_overlap >= contact_surfs[m].overlap)
     return;
 
   // Get j's exposed edge vector
   //   Note: if there's two, this will arbitrarily pick one
+  //         rare, only if j and k "kiss" at the corner
 
   int pt = -1;
   int ptj = -1;
@@ -3762,7 +3772,7 @@ void FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
     if (connect3d[j].exposed_edge[2]) ptj = tris[j].p1;
   }
 
-  if (pt == -1 || ptj == -1) {
+  if (ptj == -1) {
     // If a tri that pokes a corner onto perimeter, just remove contribution
     MathExtra::copy3(contact_surfs[n].surf_norm, contact_surfs[n].cor_ext);
     contact_surfs[n].overlap = 0.0;
@@ -3912,6 +3922,7 @@ void FixSurfaceGlobal::adjust_exposed_corner_ext(int j, int k, int n, int m)
 
   MathExtra::sub3(drnorm, dr_remove, contact_surfs[n].cor_ext);
 
+  contact_surfs[n].ext_overlap = contact_surfs[m].overlap;
   return;
 }
 
